@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 
+from dpm_agent.config import Settings
+
 
 INSTALL_API_MESSAGE = (
     "API dependencies are required to run the API server. "
@@ -10,34 +12,38 @@ INSTALL_API_MESSAGE = (
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
+def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
+    settings = settings or Settings()
     parser = argparse.ArgumentParser(description="DPM Agent API server")
     parser.add_argument(
         "--host",
-        default="127.0.0.1",
-        help="Host interface to bind, defaults to 127.0.0.1.",
+        default=settings.api_host,
+        help=f"Host interface to bind, defaults to {settings.api_host}.",
     )
     parser.add_argument(
         "--port",
         type=int,
-        default=8000,
-        help="Port to bind, defaults to 8000.",
+        default=settings.api_port,
+        help=f"Port to bind, defaults to {settings.api_port}.",
     )
     parser.add_argument(
         "--reload",
-        action="store_true",
-        help="Reload the server when source files change.",
+        action=argparse.BooleanOptionalAction,
+        default=settings.api_reload,
+        help=f"Reload the server when source files change, defaults to {settings.api_reload}.",
     )
     parser.add_argument(
         "--debug",
-        action="store_true",
-        help="Enable debug logging.",
+        action=argparse.BooleanOptionalAction,
+        default=settings.debug,
+        help=f"Enable debug logging, defaults to {settings.debug}.",
     )
     return parser
 
 
 def main() -> None:
-    parser = build_parser()
+    settings = Settings()
+    parser = build_parser(settings)
     args = parser.parse_args()
 
     if importlib.util.find_spec("fastapi") is None:

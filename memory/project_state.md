@@ -12,6 +12,9 @@
 - API 服务可通过 `uvicorn dpm_agent.interfaces.api:app`、`python -m dpm_agent.interfaces.api` 或安装后的 `dpm-agent-api` 命令启动。
 - SQLite connection 已配置 `check_same_thread=False`，并由 `ChatRepository` 与 `MemoryRepository` 共享同一把 `RLock` 串行化访问，避免 FastAPI/Starlette 线程池执行同步 SSE generator 时触发跨线程 SQLite 错误。
 - API SSE 响应与 CLI 一样不返回 `internal_state` 事件，只返回面向调用方可展示的 Agent 过程事件。
+- 存储层已支持 SQLite/PostgreSQL 后端切换。默认 SQLite；设置 `DPM_AGENT_STORAGE_BACKEND=postgres` 并提供 `DPM_AGENT_POSTGRES_DSN` 或 `DPM_AGENT_DATABASE_URL` 可切换到 PostgreSQL；若直接设置 `DPM_AGENT_DATABASE_URL` 或通用 `DATABASE_URL` 且未指定 backend，会自动推断为 PostgreSQL。PostgreSQL 依赖为可选 extra：`pip install -e ".[postgres]"`。
+- 配置项已统一抽取到 `Settings` 并支持环境变量/`.env`：包括 app/debug、LLM、system prompt、SQLite/PostgreSQL、sessions 目录以及 API host/port/reload。README 已维护完整环境变量表。
+- API 支持可配置 CORS。设置 `DPM_AGENT_CORS_ORIGINS` 后启用 FastAPI `CORSMiddleware`，并可通过 `DPM_AGENT_CORS_ALLOW_CREDENTIALS`、`DPM_AGENT_CORS_ALLOW_METHODS`、`DPM_AGENT_CORS_ALLOW_HEADERS` 调整策略。
 - 支持 `skills/` 目录，技能以 `SKILL.md` 描述。
 - 支持 `memory/` 目录，长期记忆以 Markdown 文件维护。
 - 支持 SQLite 持久化 `threads`、`messages` 和 `memory_entries`。
@@ -29,6 +32,14 @@
 
 ## 最近工作记录
 
+- 最近一轮围绕 API 与可部署性完成增强：
+  - `POST /chat/stream` SSE 保持与 CLI 同源事件流，但 API 侧过滤 `internal_state`。
+  - API 服务支持 `python -m dpm_agent.interfaces.api`、`python -m dpm_agent.api` 和 `dpm-agent-api` 启动。
+  - 修复 FastAPI/Starlette 线程池迭代 SSE generator 时的 SQLite 跨线程访问错误。
+  - 存储层新增 PostgreSQL 后端，默认保留 SQLite，并通过环境变量/`.env` 切换。
+  - 所有主要配置集中到 `Settings`：LLM、system prompt、debug、存储、sessions、API host/port/reload、CORS。
+  - API 新增可配置 CORS，中间件仅在 `DPM_AGENT_CORS_ORIGINS` 非空时启用。
+  - README 和 `docs/architecture.md` 已同步最新配置、API、SSE、CORS 和存储后端说明。
 - 本轮完成了一次结构性重构：将原先集中在顶层的 `agent_factory.py`、`service.py`、`repository.py`、`db.py`、`cli.py`、`api.py` 拆到功能子包，并保留顶层薄包装以兼容旧导入路径和 `dpm-agent` 入口。
 - 新模块边界：
   - `application/bootstrap.py`：装配 settings、SQLite connection、repository、AgentRuntime 和 AgentService。
@@ -56,17 +67,21 @@
 
 ## 验证状态
 
-- 已用 AST 解析验证 `src/dpm_agent` 下 35 个 Python 文件语法正确。
+- 已用 `.venv/bin/python` 对 `src/dpm_agent` 下 Python 文件做 AST 解析验证。
 - 已用 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src` 验证 calculator 的加、减、乘、除和除零错误路径。
 - 已验证 `default_tool_providers()` 返回内置 provider。
-- 未完整启动 DeepAgents/CLI/API 对话；当前系统环境未安装运行依赖，且系统 Python 受 PEP 668 限制，禁止全局 editable install。
-- 曾尝试 `python -m pip install -e . --no-deps` 刷新 egg-info，但被 externally-managed-environment 拒绝；随后手动同步了已跟踪的 `src/dpm_agent.egg-info/PKG-INFO`、`SOURCES.txt` 和 `requires.txt`。
+- 已验证 API Python 入口的 `--help`，环境变量可注入 API host/port/reload/debug 默认值。
+- 已验证 CORS 配置解析和 FastAPI `CORSMiddleware` 挂载逻辑；未配置 origins 时不挂载。
+- 已验证 SQLite 默认路径、旧 `connect()` + repository 用法、跨线程 repository 访问、PostgreSQL 配置推断和缺失 DSN/依赖错误提示。
+- 已执行 `git diff --check`。
+- 未连接真实 PostgreSQL 服务做集成测试；当前环境未安装 `psycopg`，已验证缺依赖时会给出明确安装提示。
+- 未完整启动 DeepAgents 真实模型对话；需要有效 OpenAI-compatible BaseURL/API Key。
 
 ## 后续建议
 
 - 下一步可以增加一个正式的 Agent 定义层，例如 `agents/` 或 `profiles/`，让不同 Agent 声明 system prompt、默认 skills、memory 策略和 tool providers。
 - 给 `calculator_tool` 增加单元测试，并为 `AgentToolProvider` 的组合逻辑增加测试。
-- 在可安装依赖的虚拟环境里运行 `pip install -e ".[api]"`，再验证 `dpm-agent`、`uvicorn dpm_agent.interfaces.api:app --reload` 和 SSE 流。
+- 在具备真实 provider 与 PostgreSQL 的环境里，验证 `dpm-agent`、`uvicorn dpm_agent.interfaces.api:app --reload`、`python -m dpm_agent.interfaces.api`、SSE 流和 PostgreSQL 持久化。
 - 后续如果继续跟踪 `src/dpm_agent.egg-info`，每次 README/依赖/包文件变化后都需要同步；更推荐后续将 egg-info 从版本控制中移除。
 
 ## 模型与接口

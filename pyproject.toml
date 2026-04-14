@@ -1,7 +1,7 @@
 [project]
 name = "dpm-agent"
 version = "0.1.0"
-description = "Personal DeepAgents application with skills, memory, and SQLite persistence."
+description = "Personal DeepAgents application with skills, memory, and pluggable persistence."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,6 +17,9 @@ dependencies = [
 api = [
   "fastapi>=0.115.0",
   "uvicorn>=0.30.0",
+]
+postgres = [
+  "psycopg[binary]>=3.2.0",
 ]
 
 [project.scripts]

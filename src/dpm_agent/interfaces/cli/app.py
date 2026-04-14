@@ -4,6 +4,7 @@ import argparse
 import sys
 import uuid
 
+from dpm_agent.config import Settings
 from dpm_agent.core.service import AgentService
 from dpm_agent.interfaces.cli.parser import build_parser
 from dpm_agent.interfaces.cli.renderer import color, render_stream
@@ -15,7 +16,8 @@ from dpm_agent.sanitize import sanitize_text
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    configure_logging(verbose=args.debug)
+    settings = Settings()
+    configure_logging(verbose=settings.debug if args.debug is None else args.debug)
 
     if args.command in {None, "chat"}:
         thread_id = _resolve_thread_id(args)

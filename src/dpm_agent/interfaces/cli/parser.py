@@ -17,7 +17,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--debug",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Enable debug logging.",
     )
     parser.add_argument(
@@ -44,7 +45,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     chat_parser.add_argument(
         "--debug",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
+        default=None,
         help="Enable debug logging.",
     )
     chat_parser.add_argument(

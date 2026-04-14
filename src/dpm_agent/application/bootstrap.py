@@ -9,7 +9,7 @@ from dpm_agent.config import Settings
 from dpm_agent.core.agent import AgentRuntime
 from dpm_agent.core.service import AgentService
 from dpm_agent.core.tools import AgentToolProvider
-from dpm_agent.storage.db import connect, initialize_database
+from dpm_agent.storage.db import connect_database, initialize_database
 from dpm_agent.storage.repository import ChatRepository, MemoryRepository
 from dpm_agent.tools import default_tool_providers
 
@@ -30,11 +30,13 @@ def build_service(
     logger.info("OpenAI API mode: chat_completions")
     logger.info("OpenAI base URL: %s", settings.effective_openai_base_url)
     logger.info("OpenAI API key configured: %s", "yes" if settings.has_openai_api_key else "no")
-    logger.info("SQLite DB path: %s", settings.effective_db_path)
+    logger.info("Storage backend: %s", settings.effective_storage_backend)
+    if settings.effective_storage_backend == "sqlite":
+        logger.info("SQLite DB path: %s", settings.effective_db_path)
     logger.info("Sessions dir: %s", settings.effective_sessions_dir)
 
-    connection = connect(settings.effective_db_path)
-    initialize_database(connection)
+    database = connect_database(settings)
+    initialize_database(database)
     database_lock = RLock()
 
     providers = tuple(tool_providers)
@@ -44,7 +46,7 @@ def build_service(
     runtime = AgentRuntime(settings=settings, tool_providers=providers)
     return AgentService(
         settings=settings,
-        chat_repository=ChatRepository(connection, lock=database_lock),
-        memory_repository=MemoryRepository(connection, lock=database_lock),
+        chat_repository=ChatRepository(database, lock=database_lock),
+        memory_repository=MemoryRepository(database, lock=database_lock),
         runtime=runtime,
     )

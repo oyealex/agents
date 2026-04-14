@@ -8,18 +8,19 @@ from typing import Any
 
 from dpm_agent.domain.models import AgentEvent, Message
 from dpm_agent.sanitize import sanitize_metadata, sanitize_text
+from dpm_agent.storage.db import Database
 
 
 class ChatRepository:
-    def __init__(self, connection: sqlite3.Connection, lock: RLock | None = None) -> None:
-        self.connection = connection
+    def __init__(self, database: Database | sqlite3.Connection, lock: RLock | None = None) -> None:
+        self.database = _as_database(database)
         self.lock = lock or RLock()
 
     def ensure_thread(self, thread_id: str, title: str | None = None) -> None:
         thread_id = sanitize_text(thread_id)
         title = sanitize_text(title) if title is not None else None
         with self.lock:
-            self.connection.execute(
+            self.database.execute(
                 """
                 INSERT INTO threads(id, title)
                 VALUES (?, ?)
@@ -27,7 +28,7 @@ class ChatRepository:
                 """,
                 (thread_id, title),
             )
-            self.connection.commit()
+            self.database.commit()
 
     def add_message(
         self,
@@ -39,7 +40,7 @@ class ChatRepository:
     ) -> None:
         thread_id = sanitize_text(thread_id)
         with self.lock:
-            self.connection.execute(
+            self.database.execute(
                 """
                 INSERT INTO messages(thread_id, role, message_type, content, metadata_json)
                 VALUES (?, ?, ?, ?, ?)
@@ -52,7 +53,7 @@ class ChatRepository:
                     json.dumps(sanitize_metadata(metadata), ensure_ascii=False),
                 ),
             )
-            self.connection.execute(
+            self.database.execute(
                 """
                 UPDATE threads
                 SET updated_at = CURRENT_TIMESTAMP
@@ -60,7 +61,7 @@ class ChatRepository:
                 """,
                 (thread_id,),
             )
-            self.connection.commit()
+            self.database.commit()
 
     def add_event(self, thread_id: str, event: AgentEvent) -> None:
         self.add_message(
@@ -87,14 +88,14 @@ class ChatRepository:
         if not rows:
             return
         with self.lock:
-            self.connection.executemany(
+            self.database.executemany(
                 """
                 INSERT INTO messages(thread_id, role, message_type, content, metadata_json)
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 rows,
             )
-            self.connection.execute(
+            self.database.execute(
                 """
                 UPDATE threads
                 SET updated_at = CURRENT_TIMESTAMP
@@ -102,12 +103,12 @@ class ChatRepository:
                 """,
                 (thread_id,),
             )
-            self.connection.commit()
+            self.database.commit()
 
     def list_messages(self, thread_id: str) -> list[Message]:
         thread_id = sanitize_text(thread_id)
         with self.lock:
-            rows = self.connection.execute(
+            rows = self.database.execute(
                 """
                 SELECT role, content, message_type, metadata_json
                 FROM messages
@@ -130,15 +131,15 @@ class ChatRepository:
 
 
 class MemoryRepository:
-    def __init__(self, connection: sqlite3.Connection, lock: RLock | None = None) -> None:
-        self.connection = connection
+    def __init__(self, database: Database | sqlite3.Connection, lock: RLock | None = None) -> None:
+        self.database = _as_database(database)
         self.lock = lock or RLock()
 
     def sync_directory(self, memory_dir: Path) -> None:
         with self.lock:
             for path in sorted(memory_dir.rglob("*.md")):
                 title = path.stem.replace("_", " ").replace("-", " ").strip().title()
-                self.connection.execute(
+                self.database.execute(
                     """
                     INSERT INTO memory_entries(path, title, tags)
                     VALUES (?, ?, ?)
@@ -148,7 +149,7 @@ class MemoryRepository:
                     """,
                     (str(path), title, ""),
                 )
-            self.connection.commit()
+            self.database.commit()
 
 
 def _decode_metadata(metadata_json: str | None) -> dict[str, Any]:
@@ -161,3 +162,11 @@ def _decode_metadata(metadata_json: str | None) -> dict[str, Any]:
     if isinstance(decoded, dict):
         return sanitize_metadata(decoded)
     return {}
+
+
+def _as_database(database: Database | sqlite3.Connection) -> Database:
+    if isinstance(database, Database):
+        return database
+    if isinstance(database, sqlite3.Connection):
+        return Database(backend="sqlite", connection=database)
+    raise TypeError(f"Unsupported database connection type: {type(database).__name__}")
