@@ -128,13 +128,15 @@ agents: []
 
 - `llms` 定义 LLM 资源：唯一名称、DeepAgents provider 格式模型名、API Key、BaseUrl 和额外调用参数。
 - `tools` 定义 Tool Provider：唯一名称、Provider 类路径和结构化配置。
-- `agents` 定义 Agent：唯一名称、引用的 LLM、引用的 Tool 列表、系统提示词、skills/memory 策略、SubAgent 名称列表、默认工具开关和 DeepAgents 额外参数。
+- `agents` 定义 Agent：唯一名称、引用的 LLM、引用的 Tool 列表、系统提示词、skills/memory 策略、Tool 事件输出长度限制、SubAgent 名称列表、默认工具开关和 DeepAgents 额外参数。
 
 环境变量注入采用显式语法：`${VAR}` 或 `${VAR:-default}`。LLM 的 `model`、`api_key`、`base_url` 以及 Tool `config` 中的字符串值支持这种语法。API Key 允许明文配置，但日志、错误信息、CLI 输出、API 响应和 SSE 事件流不得输出 secret 明文。
 
 系统提示词可用 `system_prompt` 内联，也可用 `system_prompt_file` 引用外部 UTF-8 文件；二者不能同时设置。相对路径按 YAML 文件所在目录解析，绝对路径按原路径解析。
 
 `skills` 和 `memory` 支持布尔值或 `{ enabled, paths }` 对象。启用但未指定 `paths` 时加载当前 session 默认目录；指定额外路径时，运行时会把这些只读来源镜像到当前 session 的 `.configured/` 目录，再交给 DeepAgents 的 `FilesystemBackend` 使用。这样不会扩大文件工具的可写根目录。
+
+`event_content_limits` 支持按 Agent 限制可见事件内容长度。`tool_events` 会同时作用于 `tool_call` 和 `tool_result`；`tool_call`、`tool_result` 可分别覆盖。超出限制的内容会保留前缀，并追加 `... (remaining N chars)`，CLI、API SSE 和持久化事件使用同一截断结果。
 
 YAML 中的同名 Agent 会覆盖内置同名 Agent。SubAgent 只通过已配置 Agent 名称引用，loader 会校验引用存在并拒绝直接或间接循环引用。
 

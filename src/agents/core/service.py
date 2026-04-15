@@ -6,6 +6,7 @@ from typing import Any
 
 from agents.config import Settings
 from agents.core.agent import AgentRuntime
+from agents.core.definitions import AgentEventContentLimits
 from agents.core.events import dedupe_events, events_from_stream_chunk, extract_last_text
 from agents.domain.models import AgentEvent, ChatResult
 from agents.sanitize import sanitize_text
@@ -69,6 +70,10 @@ class AgentService:
         reply_parts: list[str] = []
         try:
             for event in dedupe_events(self._stream_agent(messages=messages, thread_id=thread_id)):
+                event = apply_event_content_limits(
+                    event,
+                    self.runtime.definition.event_content_limits,
+                )
                 if event.event_type == "assistant_delta":
                     reply_parts.append(event.content)
                 events.append(event)
@@ -124,3 +129,48 @@ def _last_event_content(events: list[AgentEvent], event_type: str) -> str:
         if event.event_type == event_type:
             return event.content.strip()
     return ""
+
+
+def apply_event_content_limits(
+    event: AgentEvent,
+    limits: AgentEventContentLimits,
+) -> AgentEvent:
+    limit = limits.limit_for(event.event_type)
+    if limit is None or len(event.content) <= limit:
+        return event
+
+    content, omitted = _truncate_with_omission(event.content, limit)
+    metadata = dict(event.metadata or {})
+    metadata.update(
+        {
+            "content_truncated": True,
+            "original_content_length": len(event.content),
+            "omitted_content_chars": omitted,
+        }
+    )
+    return AgentEvent(
+        event_type=event.event_type,
+        role=event.role,
+        content=content,
+        metadata=metadata,
+        persist=event.persist,
+    )
+
+
+def _truncate_with_omission(content: str, max_chars: int) -> tuple[str, int]:
+    if max_chars < 1 or len(content) <= max_chars:
+        return content, 0
+
+    suffix_template = "... (remaining {remaining} chars)"
+    omitted = len(content) - max_chars
+    while True:
+        suffix = suffix_template.format(remaining=omitted)
+        prefix_length = max_chars - len(suffix)
+        if prefix_length <= 0:
+            compact_suffix = f"...(+{len(content)} chars)"
+            return compact_suffix[:max_chars], len(content)
+        next_omitted = len(content) - prefix_length
+        if next_omitted == omitted:
+            break
+        omitted = next_omitted
+    return f"{content[:prefix_length]}{suffix}", omitted

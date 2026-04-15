@@ -85,11 +85,26 @@
 - **THEN** 系统 SHALL 使用环境变量值初始化对应 Tool Provider
 
 ### Requirement: Agent 定义
-系统 SHALL 支持在 `agents` 段定义命名 Agent，字段包括唯一名称、引用的 LLM、引用的 Tool 列表、系统提示词、SKILLS 设置、MEMORY 设置、SubAgent 列表、默认工具开关和 DeepAgents 额外参数。
+系统 SHALL 支持在 `agents` 段定义命名 Agent，字段包括唯一名称、引用的 LLM、引用的 Tool 列表、系统提示词、SKILLS 设置、MEMORY 设置、Tool 事件输出长度限制、SubAgent 列表、默认工具开关和 DeepAgents 额外参数。
 
 #### Scenario: 加载完整 Agent 定义
 - **WHEN** YAML 中存在包含 LLM、Tools、系统提示词、SKILLS、MEMORY 和 DeepAgents 参数的 Agent 定义
 - **THEN** 系统 SHALL 构建与该定义一致的 Agent runtime
+
+### Requirement: Tool 事件输出长度限制
+系统 SHALL 支持在每个 Agent 定义中通过 `event_content_limits` 配置 `tool_call` 和 `tool_result` 事件内容的最大字符数。
+
+#### Scenario: 同时限制 Tool 事件内容
+- **WHEN** Agent 定义中 `event_content_limits.tool_events` 为 `500`
+- **THEN** 系统 SHALL 对该 Agent 输出的 `tool_call` 和 `tool_result` 事件内容应用 500 字符限制
+
+#### Scenario: 分别限制 ToolCall 和 ToolResult
+- **WHEN** Agent 定义中分别设置 `event_content_limits.tool_call` 和 `event_content_limits.tool_result`
+- **THEN** 系统 SHALL 对 `tool_call` 和 `tool_result` 事件使用各自的字符限制
+
+#### Scenario: 描述被省略的内容长度
+- **WHEN** Tool 事件内容超过已配置的最大字符数
+- **THEN** 系统 SHALL 保留内容前缀并追加省略描述，省略描述 MUST 包含剩余字符数量
 
 ### Requirement: 系统提示词来源
 系统 SHALL 支持 Agent 系统提示词在 YAML 中内联配置或通过外部文件引用配置，且二者 MUST NOT 同时出现。

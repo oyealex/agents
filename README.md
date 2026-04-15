@@ -260,6 +260,8 @@ agents:
       enabled: true
       paths:
         - ./memory/project.md
+    event_content_limits:
+      tool_events: 500
     subagents: [helper]
     create_kwargs:
       debug: false
@@ -273,6 +275,7 @@ agents:
 - `agents` 定义命名 Agent，`llm`、`tools`、`subagents` 都通过名称引用前面已配置的资源。
 - `system_prompt` 可直接写在 YAML 中；`system_prompt_file` 可引用外部 UTF-8 文件。二者不能同时配置。相对路径按配置文件所在目录解析，绝对路径按原路径解析。
 - `skills` 和 `memory` 可写布尔值，也可写 `{ enabled, paths }`。启用但不写 `paths` 时使用当前 session 默认目录；写了 `paths` 时会额外加载这些路径。
+- `event_content_limits` 可限制该 Agent 输出的事件内容长度。`tool_events` 同时限制 `tool_call` 和 `tool_result`；也可分别写 `tool_call`、`tool_result`。超出限制时会保留前缀，并追加 `... (remaining N chars)`。
 - YAML 中的同名 Agent 会覆盖内置同名 Agent。
 - API Key 允许明文配置，但日志、错误信息、CLI 输出、API 响应和 SSE 事件流都不会输出 secret 明文。
 

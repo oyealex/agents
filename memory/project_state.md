@@ -21,6 +21,7 @@
 - `messages` 现在支持 `message_type` 和 `metadata_json`，可记录用户消息、助手消息、思考/步骤、工具调用和工具结果等事件。
 - DeepAgents/LangGraph 的 middleware state update（例如 `SkillsMiddleware.before_agent updated`、`Overwrite(value=[...])`）属于内部状态同步，不是 LLM 思考内容；CLI 默认不展示，也不写入历史库。
 - CLI 事件层会忽略 `AIMessageChunk` 中尚未完整组装的工具调用分片，并对工具调用、工具结果、内部状态事件去重，避免空工具调用或重复工具结果刷屏。
+- Agent 定义支持 `event_content_limits`，可按 Agent 限制 `tool_call` / `tool_result` 可见事件内容长度；超出时保留前缀并追加剩余字符数描述，CLI、API SSE 和持久化事件使用同一截断结果。
 - CLI 支持连续对话，默认使用 `thread_id=default`。
 - 同一个 `thread_id` 会从 SQLite 读取历史消息并继续对话。
 - CLI 支持流式显示 Agent 输出，并用颜色区分用户、助手、工具和步骤事件。

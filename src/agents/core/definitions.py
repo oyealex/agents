@@ -42,6 +42,19 @@ class AgentResourceToggle:
 
 
 @dataclass(frozen=True)
+class AgentEventContentLimits:
+    tool_call: int | None = None
+    tool_result: int | None = None
+
+    def limit_for(self, event_type: str) -> int | None:
+        if event_type == "tool_call":
+            return self.tool_call
+        if event_type == "tool_result":
+            return self.tool_result
+        return None
+
+
+@dataclass(frozen=True)
 class AgentDefinition:
     """Declarative agent profile for pluggable multi-agent runtime bootstrapping."""
 
@@ -53,6 +66,9 @@ class AgentDefinition:
     include_builtin_tools: bool = True
     tool_providers: tuple[AgentToolProvider, ...] = ()
     subagent_names: tuple[str, ...] = ()
+    event_content_limits: AgentEventContentLimits = field(
+        default_factory=AgentEventContentLimits
+    )
     create_kwargs: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -129,6 +145,14 @@ class ToggleConfig(BaseModel):
     paths: list[Path] = Field(default_factory=list)
 
 
+class EventContentLimitsConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_events: int | None = Field(default=None, ge=1)
+    tool_call: int | None = Field(default=None, ge=1)
+    tool_result: int | None = Field(default=None, ge=1)
+
+
 class AgentResourceConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -141,6 +165,9 @@ class AgentResourceConfig(BaseModel):
     memory: bool | ToggleConfig = True
     include_builtin_tools: bool = True
     subagents: list[str] = Field(default_factory=list)
+    event_content_limits: EventContentLimitsConfig = Field(
+        default_factory=EventContentLimitsConfig
+    )
     create_kwargs: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -392,6 +419,7 @@ def _to_agent_definition(
         include_builtin_tools=agent.include_builtin_tools,
         tool_providers=tuple(tool_providers[name] for name in agent.tools),
         subagent_names=tuple(agent.subagents),
+        event_content_limits=_to_event_content_limits(agent.event_content_limits),
         create_kwargs=dict(agent.create_kwargs),
     )
 
@@ -426,6 +454,15 @@ def _to_toggle(value: bool | ToggleConfig, config_path: Path) -> AgentResourceTo
     return AgentResourceToggle(
         enabled=value.enabled,
         paths=tuple(_resolve_config_path(path, config_path) for path in value.paths),
+    )
+
+
+def _to_event_content_limits(config: EventContentLimitsConfig) -> AgentEventContentLimits:
+    return AgentEventContentLimits(
+        tool_call=config.tool_call if config.tool_call is not None else config.tool_events,
+        tool_result=(
+            config.tool_result if config.tool_result is not None else config.tool_events
+        ),
     )
 
 
