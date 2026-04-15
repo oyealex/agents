@@ -1,0 +1,105 @@
+# Full-feature reference config for this project.
+#
+# Usage:
+#   agents research_assistant --agent-config ./example/agents.full.yaml --user-id demo
+#   agents-api --agent default --agent-config ./example/agents.full.yaml --host 127.0.0.1 --port 8000
+#
+# Environment variables use ${VAR} or ${VAR:-default}. Keep secrets in the
+# environment or .env rather than committing real keys.
+
+llms:
+  - name: primary
+    model: ${AGENT_MODEL:-openai:gpt-4.1}
+    api_key: ${AGENT_OPENAI_API_KEY:-}
+    base_url: ${AGENT_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    kwargs:
+      temperature: 0.2
+      timeout: 60
+      max_retries: 2
+
+  - name: fast
+    model: ${AGENT_FAST_MODEL:-openai:gpt-4.1-mini}
+    api_key: ${AGENT_OPENAI_API_KEY:-}
+    base_url: ${AGENT_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    kwargs:
+      temperature: 0
+      timeout: 30
+      max_retries: 1
+
+tools:
+  - name: calculator
+    provider: agents.tools.calculator.CalculatorToolProvider
+    config: {}
+
+agents:
+  # Overrides the built-in "default" profile when this file is loaded.
+  - name: default
+    llm: primary
+    tools:
+      - calculator
+    system_prompt: |
+      你是我的个人 Agent。优先保持回答准确、可执行、不过度冗长。
+      当信息不足时，明确指出缺失信息，不要编造。
+    include_builtin_tools: true
+    skills: true
+    memory: true
+    event_content_limits:
+      tool_events: 1200
+    create_kwargs: {}
+
+  # A small subagent used by the main research assistant.
+  - name: summarizer
+    llm: fast
+    tools: []
+    system_prompt_file: ./prompts/summarizer.md
+    include_builtin_tools: false
+    skills: false
+    memory:
+      enabled: true
+      paths:
+        - ./memory/shared-context.md
+    event_content_limits:
+      tool_call: 400
+      tool_result: 800
+    create_kwargs: {}
+
+  # Demonstrates direct prompt text, configured resource paths, subagents,
+  # built-in tools, custom tool providers, and per-event content limits.
+  - name: research_assistant
+    llm: primary
+    tools:
+      - calculator
+    system_prompt: |
+      你是研究助理 Agent。
+      先澄清目标和约束，再给出结构化结论。
+      需要计算时优先使用 calculator 工具；需要拆解长材料时委托 summarizer。
+    include_builtin_tools: true
+    skills:
+      enabled: true
+      paths:
+        - ./skills/common
+    memory:
+      enabled: true
+      paths:
+        - ./memory/shared-context.md
+    subagents:
+      - summarizer
+    event_content_limits:
+      tool_call: 600
+      tool_result: 2000
+    create_kwargs: {}
+
+  # A minimal profile for runs where skills, memory, and built-in tools should
+  # be disabled but the selected LLM should still come from this config file.
+  - name: clean_room
+    llm: fast
+    tools: []
+    system_prompt: |
+      你在一个无外部上下文的干净环境中工作。
+      只基于用户当前输入回答，并清楚标注不确定性。
+    include_builtin_tools: false
+    skills: false
+    memory: false
+    event_content_limits:
+      tool_events: 500
+    create_kwargs: {}

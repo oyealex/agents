@@ -22,17 +22,26 @@
 - DeepAgents/LangGraph 的 middleware state update（例如 `SkillsMiddleware.before_agent updated`、`Overwrite(value=[...])`）属于内部状态同步，不是 LLM 思考内容；CLI 默认不展示，也不写入历史库。
 - CLI 事件层会忽略 `AIMessageChunk` 中尚未完整组装的工具调用分片，并对工具调用、工具结果、内部状态事件去重，避免空工具调用或重复工具结果刷屏。
 - Agent 定义支持 `event_content_limits`，可按 Agent 限制 `tool_call` / `tool_result` 可见事件内容长度；超出时保留前缀并追加剩余字符数描述，CLI、API SSE 和持久化事件使用同一截断结果。
-- CLI 支持连续对话，默认使用 `thread_id=default`。
-- 同一个 `thread_id` 会从 SQLite 读取历史消息并继续对话。
+- CLI 支持连续对话，默认使用 `user_id=default` 和 `thread_id=default`。
+- 同一个 `(user_id, thread_id)` 会从数据库读取历史消息并继续对话。
 - CLI 支持流式显示 Agent 输出，并用颜色区分用户、助手、工具和步骤事件。
 - SQLite 对话历史库是多个对话共享的应用级数据库，默认仍为 `./data/agent.sqlite3`。
 - sessions 默认位于 `./data/sessions`，可通过 `--sessions-dir` 指定。
-- 每个对话的文件工具工作目录、skills 和 memory 都按 `thread_id` 隔离到 `data/sessions/<session-id>`。
+- 每个对话的文件工具工作目录、skills 和 memory 都按 `(user_id, thread_id)` 隔离到 `data/sessions/<user-id>/<session-id>`。
 - 不再单独创建 `runtime/` 目录；运行期临时文件、中间结果、缓存和生成草稿直接放入当前 session 根目录，长期上下文应放入该 session 的 `memory/`。
-- 用户输入、历史消息、事件内容、事件元数据和 `thread_id` 会在进入 Agent/SQLite 前清理非法 surrogate 字符；清理时优先按 surrogateescape 还原有效 UTF-8，避免中文引号等字符被错误替换，同时避免 OpenAI SDK 在 UTF-8 编码请求 JSON 时崩溃。
+- 用户输入、历史消息、事件内容、事件元数据、`user_id` 和 `thread_id` 会在进入 Agent/数据库前清理非法 surrogate 字符；清理时优先按 surrogateescape 还原有效 UTF-8，避免中文引号等字符被错误替换，同时避免 OpenAI SDK 在 UTF-8 编码请求 JSON 时崩溃。
+
+## 最近归档
+
+- `add-user-isolation` 已归档到 `openspec/changes/archive/2026-04-16-add-user-isolation/`。
+- 主规格已新增 `openspec/specs/user-isolation/spec.md`，记录用户作用域 session、存储、runtime、CLI/API 用户选择和历史查询能力。
 
 ## 最近工作记录
 
+- 新增 `example/` 参考配置目录：
+  - `example/agents.full.yaml` 展示 LLM env 引用、ChatOpenAI kwargs、calculator tool provider、直接 prompt、prompt 文件、skills/memory 外部路径、subagents、内置工具开关和事件内容截断。
+  - `example/env.full.example` 展示 `AGENT_*` 运行时配置，包括模型、API key/base URL、用户隔离、SQLite/PostgreSQL、API、CORS 和自定义环境变量前缀。
+  - 示例引用的 `example/prompts/`、`example/memory/` 和 `example/skills/` 文件已补齐，配置可被 loader 直接解析。
 - 本轮按“尽量简化实现、功能不变”做了低风险收拢：
   - `core/events.py` 将 message/update 两条流里的消息转事件逻辑合并为共享 helper，保留原事件类型、角色、metadata 和持久化语义。
   - `storage/repository.py` 将单条/批量消息写入共用同一个 SQL helper，避免重复维护插入消息和刷新 thread 时间的逻辑。
