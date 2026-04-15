@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import re
 
@@ -12,7 +11,7 @@ from dpm_agent.sanitize import sanitize_text
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_prefix="DPM_AGENT_",
+        env_prefix="AGENT_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
@@ -21,13 +20,11 @@ class Settings(BaseSettings):
     app_name: str = "dpm-agent"
     debug: bool = False
     model: str = "openai:gpt-4.1"
-    system_prompt: str = "你是我的个人 Agent。"
-    storage_backend: str | None = Field(default=None)
-    database_url: str | None = Field(default=None)
+    storage_backend: str = "sqlite"
     postgres_dsn: str | None = Field(default=None)
     db_path: Path = Field(default=Path("./data/agent.sqlite3"))
     sessions_dir: Path = Field(default=Path("./data/sessions"))
-    openai_base_url: str | None = Field(default=None)
+    openai_base_url: str = "https://api.openai.com/v1"
     openai_api_key: str | None = Field(default=None)
     api_host: str = "127.0.0.1"
     api_port: int = 8000
@@ -42,22 +39,9 @@ class Settings(BaseSettings):
             self.effective_db_path.parent.mkdir(parents=True, exist_ok=True)
         self.effective_sessions_dir.mkdir(parents=True, exist_ok=True)
 
-    def apply_provider_environment(self) -> None:
-        if self.openai_base_url:
-            os.environ["OPENAI_BASE_URL"] = self.openai_base_url
-        elif os.getenv("OPENAI_API_BASE") and not os.getenv("OPENAI_BASE_URL"):
-            os.environ["OPENAI_BASE_URL"] = os.getenv("OPENAI_API_BASE", "")
-        if self.openai_api_key:
-            os.environ["OPENAI_API_KEY"] = self.openai_api_key
-
     @property
     def effective_openai_base_url(self) -> str:
-        return (
-            self.openai_base_url
-            or os.getenv("OPENAI_BASE_URL")
-            or os.getenv("OPENAI_API_BASE")
-            or "https://api.openai.com/v1"
-        )
+        return self.openai_base_url
 
     @property
     def effective_model_name(self) -> str:
@@ -67,31 +51,22 @@ class Settings(BaseSettings):
 
     @property
     def has_openai_api_key(self) -> bool:
-        return bool(self.openai_api_key or os.getenv("OPENAI_API_KEY"))
+        return bool(self.openai_api_key)
 
     @property
     def effective_storage_backend(self) -> str:
-        backend = sanitize_text(self.storage_backend or "").lower().strip()
-        if not backend:
-            return "postgres" if self.effective_postgres_dsn else "sqlite"
+        backend = sanitize_text(self.storage_backend).lower().strip()
         if backend in {"postgresql", "pg"}:
             return "postgres"
         if backend == "sqlite":
             return "sqlite"
         if backend == "postgres":
             return "postgres"
-        if self.effective_postgres_dsn:
-            return "postgres"
         return backend
 
     @property
     def effective_postgres_dsn(self) -> str | None:
-        return (
-            self.postgres_dsn
-            or self.database_url
-            or os.getenv("DATABASE_URL")
-            or os.getenv("POSTGRES_DSN")
-        )
+        return self.postgres_dsn
 
     @property
     def effective_cors_origins(self) -> list[str]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent
@@ -9,6 +10,8 @@ from langchain_openai import ChatOpenAI
 
 from dpm_agent.config import Settings
 from dpm_agent.core.tools import AgentToolProvider, collect_tools
+
+DEFAULT_SYSTEM_PROMPT = "你是我的个人 Agent。"
 
 
 class AgentRuntime:
@@ -30,18 +33,26 @@ class AgentRuntime:
         )
 
 
-def _collect_memory_files(settings: Settings, thread_id: str) -> list[str]:
+def _to_backend_absolute(path: Path, session_dir: Path) -> str:
+    relative = path.resolve().relative_to(session_dir.resolve())
+    return f"/{relative.as_posix()}"
+
+
+def _collect_memory_files(settings: Settings, thread_id: str, session_dir: Path) -> list[str]:
     memory_dir = settings.effective_session_memory_dir(thread_id)
     if not memory_dir.exists():
         return []
-    return [str(path) for path in sorted(memory_dir.rglob("*.md"))]
+    files: list[str] = []
+    for path in sorted(memory_dir.rglob("*.md")):
+        files.append(_to_backend_absolute(path, session_dir))
+    return files
 
 
-def _collect_skill_roots(settings: Settings, thread_id: str) -> list[str]:
+def _collect_skill_roots(settings: Settings, thread_id: str, session_dir: Path) -> list[str]:
     skills_dir = settings.effective_session_skills_dir(thread_id)
     if not skills_dir.exists():
         return []
-    return [str(skills_dir)]
+    return [_to_backend_absolute(skills_dir, session_dir)]
 
 
 def _openai_model_name(model: str) -> str:
@@ -63,15 +74,15 @@ def build_chat_model(settings: Settings) -> ChatOpenAI:
 
 def build_agent(settings: Settings, thread_id: str, tools: Iterable[Any] = ()):
     session_dir = settings.ensure_session_directories(thread_id)
-    memory_files = _collect_memory_files(settings, thread_id)
-    skill_roots = _collect_skill_roots(settings, thread_id)
+    memory_files = _collect_memory_files(settings, thread_id, session_dir)
+    skill_roots = _collect_skill_roots(settings, thread_id, session_dir)
     model = build_chat_model(settings)
     backend = FilesystemBackend(root_dir=str(session_dir), virtual_mode=True)
     tool_list = list(tools)
 
     kwargs: dict[str, Any] = {
         "model": model,
-        "system_prompt": settings.system_prompt,
+        "system_prompt": DEFAULT_SYSTEM_PROMPT,
         "memory": memory_files,
         "skills": skill_roots,
         "backend": backend,

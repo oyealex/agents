@@ -116,7 +116,7 @@ def connect_database(settings: Settings) -> Database:
         dsn = settings.effective_postgres_dsn
         if not dsn:
             raise ValueError(
-                "PostgreSQL storage requires DPM_AGENT_POSTGRES_DSN or DPM_AGENT_DATABASE_URL."
+                "PostgreSQL storage requires AGENT_POSTGRES_DSN."
             )
         try:
             import psycopg

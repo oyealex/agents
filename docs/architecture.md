@@ -33,7 +33,7 @@ API 当前支持：
 - `POST /chat`：同步对话，返回最终回复。
 - `POST /chat/stream`：SSE 流式对话，逐条返回面向调用方可展示的 `AgentEvent`。
 
-SSE 接口复用 `AgentService.chat_stream()`，因此与 CLI 使用同一套事件归一化逻辑。API 会过滤 `internal_state`，不会把 DeepAgents/LangGraph 的内部状态同步事件暴露给前端。跨域访问通过 FastAPI `CORSMiddleware` 实现，只有设置 `DPM_AGENT_CORS_ORIGINS` 后才启用 CORS。
+SSE 接口复用 `AgentService.chat_stream()`，因此与 CLI 使用同一套事件归一化逻辑。API 会过滤 `internal_state`，不会把 DeepAgents/LangGraph 的内部状态同步事件暴露给前端。跨域访问通过 FastAPI `CORSMiddleware` 实现，只有设置 `AGENT_CORS_ORIGINS` 后才启用 CORS。
 
 ### 2. 应用服务层
 
@@ -96,16 +96,16 @@ SSE 接口复用 `AgentService.chat_stream()`，因此与 CLI 使用同一套事
 
 ### 4. 配置层
 
-配置统一集中在 `dpm_agent.config.Settings`，来源包括当前环境变量和项目根目录 `.env` 文件。推荐使用 `DPM_AGENT_` 前缀；OpenAI-compatible provider 也兼容 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_API_BASE`。
+配置统一集中在 `dpm_agent.config.Settings`，来源包括当前环境变量和项目根目录 `.env` 文件。统一使用 `AGENT_` 前缀，不再提供额外 fallback 变量。
 
 主要配置范围：
 
-- 应用与日志：`DPM_AGENT_APP_NAME`、`DPM_AGENT_DEBUG`
-- LLM：`DPM_AGENT_MODEL`、`DPM_AGENT_SYSTEM_PROMPT`、`DPM_AGENT_OPENAI_API_KEY`、`DPM_AGENT_OPENAI_BASE_URL`
-- 存储：`DPM_AGENT_STORAGE_BACKEND`、`DPM_AGENT_DB_PATH`、`DPM_AGENT_POSTGRES_DSN`、`DPM_AGENT_DATABASE_URL`
-- 会话文件：`DPM_AGENT_SESSIONS_DIR`
-- API：`DPM_AGENT_API_HOST`、`DPM_AGENT_API_PORT`、`DPM_AGENT_API_RELOAD`
-- CORS：`DPM_AGENT_CORS_ORIGINS`、`DPM_AGENT_CORS_ALLOW_CREDENTIALS`、`DPM_AGENT_CORS_ALLOW_METHODS`、`DPM_AGENT_CORS_ALLOW_HEADERS`
+- 应用与日志：`AGENT_APP_NAME`、`AGENT_DEBUG`
+- LLM：`AGENT_MODEL`、`AGENT_OPENAI_API_KEY`、`AGENT_OPENAI_BASE_URL`
+- 存储：`AGENT_STORAGE_BACKEND`、`AGENT_DB_PATH`、`AGENT_POSTGRES_DSN`
+- 会话文件：`AGENT_SESSIONS_DIR`
+- API：`AGENT_API_HOST`、`AGENT_API_PORT`、`AGENT_API_RELOAD`
+- CORS：`AGENT_CORS_ORIGINS`、`AGENT_CORS_ALLOW_CREDENTIALS`、`AGENT_CORS_ALLOW_METHODS`、`AGENT_CORS_ALLOW_HEADERS`
 
 CLI/API 的命令行参数仍可覆盖对应环境变量，例如 `--sessions-dir`、`--host`、`--port`、`--reload`、`--debug`。
 
@@ -117,7 +117,7 @@ CLI/API 的命令行参数仍可覆盖对应环境变量，例如 `--sessions-di
 - `messages`：对话消息和事件，使用 `message_type` 区分 `user_message`、`assistant_message`、`thinking`、`tool_call`、`tool_result` 等类型；DeepAgents/LangGraph 的内部状态更新如 middleware 生命周期事件和 `Overwrite(...)` 不作为可见对话事件持久化，工具调用分片和重复工具结果会在事件层过滤
 - `memory_entries`：应用侧登记的长期记忆文件
 
-对话历史库是应用级共享数据库，默认使用 SQLite，位于 `./data/agent.sqlite3`；也可通过 `DPM_AGENT_STORAGE_BACKEND=postgres` 与 `DPM_AGENT_POSTGRES_DSN` / `DPM_AGENT_DATABASE_URL` 切换到 PostgreSQL。如果未显式指定后端但提供了数据库 URL，系统会自动推断为 PostgreSQL。
+对话历史库是应用级共享数据库，默认使用 SQLite，位于 `./data/agent.sqlite3`；也可通过 `AGENT_STORAGE_BACKEND=postgres` 与 `AGENT_POSTGRES_DSN` 切换到 PostgreSQL。
 
 SQLite connection 使用 `check_same_thread=False`，并由 `ChatRepository` 与 `MemoryRepository` 共享同一把 `RLock` 串行化访问，避免 FastAPI/Starlette 在线程池中迭代同步 SSE generator 时触发跨线程 SQLite 错误。
 
