@@ -23,7 +23,6 @@ def build_service(
 ) -> AgentService:
     settings = Settings(sessions_dir=sessions_dir) if sessions_dir else Settings()
     settings.ensure_directories()
-    settings.apply_provider_environment()
     logger.info("Starting %s", settings.app_name)
     logger.info("Model setting: %s", settings.model)
     logger.info("Provider model name: %s", settings.effective_model_name)
