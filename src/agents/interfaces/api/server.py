@@ -4,8 +4,7 @@ import argparse
 import importlib.util
 from pathlib import Path
 
-from agents.config import Settings
-from agents.core.definitions import AgentConfigError, load_agent_registry
+from agents.core.definitions import AgentConfigError, load_agent_registry, load_settings
 
 
 INSTALL_API_MESSAGE = (
@@ -14,32 +13,8 @@ INSTALL_API_MESSAGE = (
 )
 
 
-def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
-    settings = settings or Settings()
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agents API server")
-    parser.add_argument(
-        "--host",
-        default=settings.api_host,
-        help=f"Host interface to bind, defaults to {settings.api_host}.",
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=settings.api_port,
-        help=f"Port to bind, defaults to {settings.api_port}.",
-    )
-    parser.add_argument(
-        "--reload",
-        action=argparse.BooleanOptionalAction,
-        default=settings.api_reload,
-        help=f"Reload the server when source files change, defaults to {settings.api_reload}.",
-    )
-    parser.add_argument(
-        "--debug",
-        action=argparse.BooleanOptionalAction,
-        default=settings.debug,
-        help=f"Enable debug logging, defaults to {settings.debug}.",
-    )
     parser.add_argument(
         "--agent",
         default="default",
@@ -55,8 +30,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
 
 
 def main() -> None:
-    settings = Settings()
-    parser = build_parser(settings)
+    parser = build_parser()
     args = parser.parse_args()
 
     if importlib.util.find_spec("fastapi") is None:
@@ -68,6 +42,7 @@ def main() -> None:
         raise SystemExit(INSTALL_API_MESSAGE) from exc
 
     try:
+        settings = load_settings(args.agent_config)
         registry = load_agent_registry(args.agent_config)
     except AgentConfigError as exc:
         raise SystemExit(str(exc)) from exc
@@ -79,9 +54,14 @@ def main() -> None:
     from agents.interfaces.api.app import create_app
 
     uvicorn.run(
-        create_app(agent_name=args.agent, agent_config_path=args.agent_config, agent_registry=registry),
-        host=args.host,
-        port=args.port,
-        reload=args.reload,
-        log_level="debug" if args.debug else "info",
+        create_app(
+            agent_name=args.agent,
+            agent_config_path=args.agent_config,
+            agent_registry=registry,
+            settings=settings,
+        ),
+        host=settings.api_host,
+        port=settings.api_port,
+        reload=settings.api_reload,
+        log_level="debug" if settings.debug else "info",
     )

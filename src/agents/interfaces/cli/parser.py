@@ -30,29 +30,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-id",
         default=None,
-        help="User ID for session isolation. Defaults to AGENT_DEFAULT_USER_ID or 'default'.",
+        help="User ID for session isolation. Defaults to settings.default_user_id.",
     )
     parser.add_argument(
         "--message",
         help="Send one message and exit. If omitted, starts interactive mode.",
     )
     parser.add_argument(
-        "--sessions-dir",
-        type=Path,
-        default=None,
-        help="Directory for per-session files, skills, and memory. Defaults to ./data/sessions.",
-    )
-    parser.add_argument(
         "--agent-config",
         type=Path,
         default=None,
         help="Path to agents.yaml. Defaults to ./agents.yaml when it exists.",
-    )
-    parser.add_argument(
-        "--debug",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Enable debug logging.",
     )
     parser.add_argument(
         "--new",

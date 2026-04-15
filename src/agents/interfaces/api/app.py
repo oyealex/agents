@@ -18,7 +18,7 @@ from agents.interfaces.api.schemas import (
 )
 from agents.interfaces.api.sse import stream_agent_events
 from agents.application.bootstrap import build_service
-from agents.core.definitions import AgentConfigError, AgentRegistry, load_agent_registry
+from agents.core.definitions import AgentConfigError, AgentRegistry, load_agent_registry, load_settings
 
 
 def create_app(
@@ -26,10 +26,11 @@ def create_app(
     agent_name: str = "default",
     agent_config_path: Path | None = None,
     agent_registry: AgentRegistry | None = None,
+    settings: Settings | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Agents API")
-    settings = service.settings if service is not None else Settings()
     try:
+        settings = service.settings if service is not None else (settings or load_settings(agent_config_path))
         registry = agent_registry or load_agent_registry(agent_config_path)
     except AgentConfigError as exc:
         raise ValueError(str(exc)) from exc
@@ -40,6 +41,7 @@ def create_app(
     app.state.agent_name = agent_name
     app.state.agent_config_path = agent_config_path
     app.state.agent_registry = registry
+    app.state.settings = settings
     app.state.agent_services = {}
     if service is not None:
         app.state.agent_services[agent_name] = service
@@ -144,6 +146,7 @@ def _get_agent_service(app: FastAPI, agent_name: str) -> AgentService:
         services[agent_name] = build_service(
             agent_config_path=app.state.agent_config_path,
             agent_registry=registry,
+            settings=app.state.settings,
             agent_name=agent_name,
         )
     return services[agent_name]

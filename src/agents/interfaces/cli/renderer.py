@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 
 from agents.domain.models import AgentEvent
@@ -27,7 +26,7 @@ def color(text: str, color_name: str) -> str:
 
 
 def use_color() -> bool:
-    return sys.stdout.isatty() and not os.getenv("NO_COLOR")
+    return sys.stdout.isatty()
 
 
 def render_stream(events: object) -> None:

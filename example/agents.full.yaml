@@ -1,26 +1,61 @@
 # Full-feature reference config for this project.
 #
 # Usage:
+#   OPENAI_API_KEY=... agents default --agent-config ./example/agents.full.yaml
 #   agents research_assistant --agent-config ./example/agents.full.yaml --user-id demo
-#   agents-api --agent default --agent-config ./example/agents.full.yaml --host 127.0.0.1 --port 8000
+#   agents-api --agent default --agent-config ./example/agents.full.yaml
 #
-# Environment variables use ${VAR} or ${VAR:-default}. Keep secrets in the
-# environment or .env rather than committing real keys.
+# All runtime configuration lives in this YAML file. Individual YAML scalar
+# values may reference process environment variables with ${VAR} or
+# ${VAR:-default}; the application does not scan environment variables directly.
+# Prefer direct YAML values for non-secrets and ${VAR} only for secrets such as
+# API keys or database DSNs.
+
+settings:
+  # Application and logging
+  app_name: agents
+  debug: false
+
+  # Default model settings used when an Agent LLM does not override them.
+  # The runtime keeps using OpenAI-compatible Chat Completions.
+  model: openai:gpt-4.1
+  openai_api_key: ${OPENAI_API_KEY:-}
+  openai_base_url: https://api.openai.com/v1
+
+  # User/session isolation and storage.
+  default_user_id: default
+  sessions_dir: ../data/example-sessions
+  storage_backend: sqlite
+  db_path: ../data/example-agent.sqlite3
+  postgres_dsn: ${POSTGRES_DSN:-}
+  # PostgreSQL alternative:
+  # storage_backend: postgres
+  # postgres_dsn: ${POSTGRES_DSN}
+
+  # API server and CORS defaults.
+  api_host: 127.0.0.1
+  api_port: 8000
+  api_reload: false
+  cors_origins: http://localhost:3000,http://127.0.0.1:5173
+  cors_allow_credentials: false
+  cors_allow_methods: "*"
+  cors_allow_headers: "*"
 
 llms:
   - name: primary
-    model: ${AGENT_MODEL:-openai:gpt-4.1}
-    api_key: ${AGENT_OPENAI_API_KEY:-}
-    base_url: ${AGENT_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    model: openai:gpt-4.1
+    api_key: ${OPENAI_API_KEY:-}
+    base_url: https://api.openai.com/v1
     kwargs:
+      # Passed directly to langchain_openai.ChatOpenAI.
       temperature: 0.2
       timeout: 60
       max_retries: 2
 
   - name: fast
-    model: ${AGENT_FAST_MODEL:-openai:gpt-4.1-mini}
-    api_key: ${AGENT_OPENAI_API_KEY:-}
-    base_url: ${AGENT_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    model: openai:gpt-4.1-mini
+    api_key: ${OPENAI_API_KEY:-}
+    base_url: https://api.openai.com/v1
     kwargs:
       temperature: 0
       timeout: 30
@@ -45,7 +80,9 @@ agents:
     memory: true
     event_content_limits:
       tool_events: 1200
-    create_kwargs: {}
+    create_kwargs:
+      # Extra keyword arguments for deepagents.create_deep_agent.
+      debug: false
 
   # A small subagent used by the main research assistant.
   - name: summarizer

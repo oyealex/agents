@@ -7,7 +7,13 @@ from threading import RLock
 
 from agents.config import Settings
 from agents.core.agent import AgentRuntime
-from agents.core.definitions import AgentConfigError, AgentRegistry, load_agent_registry, mask_secrets
+from agents.core.definitions import (
+    AgentConfigError,
+    AgentRegistry,
+    load_agent_registry,
+    load_settings,
+    mask_secrets,
+)
 from agents.core.service import AgentService
 from agents.core.tools import AgentToolProvider
 from agents.storage.db import connect_database, initialize_database
@@ -18,14 +24,15 @@ logger = logging.getLogger(__name__)
 
 
 def build_service(
-    sessions_dir: Path | None = None,
     agent_config_path: Path | None = None,
     agent_registry: AgentRegistry | None = None,
+    settings: Settings | None = None,
     tool_providers: Iterable[AgentToolProvider] = (),
     include_builtin_tools: bool = True,
     agent_name: str = "default",
 ) -> AgentService:
-    settings = Settings(sessions_dir=sessions_dir) if sessions_dir else Settings()
+    if settings is None:
+        settings = load_settings(agent_config_path)
     settings.ensure_directories()
     logger.info("Starting %s", settings.app_name)
     logger.info("Model setting: %s", settings.model)
@@ -37,13 +44,6 @@ def build_service(
     if settings.effective_storage_backend == "sqlite":
         logger.info("SQLite DB path: %s", settings.effective_db_path)
     logger.info("Sessions dir: %s", settings.effective_sessions_dir)
-    logger.info(
-        "Custom env loaded: total=%s agent=%s tool=%s",
-        len(settings.effective_custom_env),
-        len(settings.effective_custom_agent_env),
-        len(settings.effective_custom_tool_env),
-    )
-
     database = connect_database(settings)
     initialize_database(database)
     database_lock = RLock()

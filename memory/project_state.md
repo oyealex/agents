@@ -12,9 +12,9 @@
 - API 服务可通过 `uvicorn agents.interfaces.api:app`、`python -m agents.interfaces.api` 或安装后的 `agents-api` 命令启动。
 - SQLite connection 已配置 `check_same_thread=False`，并由 `ChatRepository` 与 `MemoryRepository` 共享同一把 `RLock` 串行化访问，避免 FastAPI/Starlette 线程池执行同步 SSE generator 时触发跨线程 SQLite 错误。
 - API SSE 响应与 CLI 一样不返回 `internal_state` 事件，只返回面向调用方可展示的 Agent 过程事件。
-- 存储层已支持 SQLite/PostgreSQL 后端切换。默认 SQLite；设置 `AGENT_STORAGE_BACKEND=postgres` 并提供 `AGENT_POSTGRES_DSN` 可切换到 PostgreSQL。PostgreSQL 依赖为可选 extra：`pip install -e ".[postgres]"`。
-- 配置项已统一抽取到 `Settings` 并支持环境变量/`.env`：包括 app/debug、LLM、system prompt、SQLite/PostgreSQL、sessions 目录以及 API host/port/reload。README 已维护完整环境变量表。
-- API 支持可配置 CORS。设置 `AGENT_CORS_ORIGINS` 后启用 FastAPI `CORSMiddleware`，并可通过 `AGENT_CORS_ALLOW_CREDENTIALS`、`AGENT_CORS_ALLOW_METHODS`、`AGENT_CORS_ALLOW_HEADERS` 调整策略。
+- 存储层已支持 SQLite/PostgreSQL 后端切换。默认 SQLite；在 `agents.yaml` 的 `settings.storage_backend` 与 `settings.postgres_dsn` 中可切换到 PostgreSQL。PostgreSQL 依赖为可选 extra：`pip install -e ".[postgres]"`。
+- 配置项已统一抽取到 `Settings`，运行时配置来自 `agents.yaml` 顶层 `settings:`；YAML 字段支持 `${VAR}` 引用，但代码不直接读取 `.env` 或扫描环境变量。
+- API 支持可配置 CORS。设置 YAML `settings.cors_origins` 后启用 FastAPI `CORSMiddleware`，并可通过 `settings.cors_allow_credentials`、`settings.cors_allow_methods`、`settings.cors_allow_headers` 调整策略。
 - 支持 `skills/` 目录，技能以 `SKILL.md` 描述。
 - 支持 `memory/` 目录，长期记忆以 Markdown 文件维护。
 - 支持 SQLite 持久化 `threads`、`messages` 和 `memory_entries`。
@@ -26,7 +26,7 @@
 - 同一个 `(user_id, thread_id)` 会从数据库读取历史消息并继续对话。
 - CLI 支持流式显示 Agent 输出，并用颜色区分用户、助手、工具和步骤事件。
 - SQLite 对话历史库是多个对话共享的应用级数据库，默认仍为 `./data/agent.sqlite3`。
-- sessions 默认位于 `./data/sessions`，可通过 `--sessions-dir` 指定。
+- sessions 默认位于 `./data/sessions`，可通过 YAML `settings.sessions_dir` 指定。
 - 每个对话的文件工具工作目录、skills 和 memory 都按 `(user_id, thread_id)` 隔离到 `data/sessions/<user-id>/<session-id>`。
 - 不再单独创建 `runtime/` 目录；运行期临时文件、中间结果、缓存和生成草稿直接放入当前 session 根目录，长期上下文应放入该 session 的 `memory/`。
 - 用户输入、历史消息、事件内容、事件元数据、`user_id` 和 `thread_id` 会在进入 Agent/数据库前清理非法 surrogate 字符；清理时优先按 surrogateescape 还原有效 UTF-8，避免中文引号等字符被错误替换，同时避免 OpenAI SDK 在 UTF-8 编码请求 JSON 时崩溃。
@@ -40,20 +40,26 @@
 
 - 新增 `example/` 参考配置目录：
   - `example/agents.full.yaml` 展示 LLM env 引用、ChatOpenAI kwargs、calculator tool provider、直接 prompt、prompt 文件、skills/memory 外部路径、subagents、内置工具开关和事件内容截断。
-  - `example/env.full.example` 展示 `AGENT_*` 运行时配置，包括模型、API key/base URL、用户隔离、SQLite/PostgreSQL、API、CORS 和自定义环境变量前缀。
+  - `example/README.md` 说明 YAML-only 示例配置的覆盖范围、运行命令和示例运行数据位置。
+  - 已移除单独的 env 示例；配置参考集中在 YAML 中。
   - 示例引用的 `example/prompts/`、`example/memory/` 和 `example/skills/` 文件已补齐，配置可被 loader 直接解析。
+- 配置入口已收敛到 `agents.yaml`：
+  - `Settings` 不再继承 `BaseSettings`，不读取 `.env`，也不扫描 `AGENT_*` 或自定义环境变量前缀。
+  - 运行时配置来自 YAML 顶层 `settings:`；字段值可通过 `${VAR}` 或 `${VAR:-default}` 进行单点环境变量引用。
+  - CLI/API 的 host、port、reload、debug、sessions_dir 等配置不再通过命令行或环境变量覆盖；命令行只选择 config 文件、Agent、用户、thread 和消息。
+  - `example/agents.full.yaml` 是完整功能参考配置；单独的 env 示例已移除。
 - 本轮按“尽量简化实现、功能不变”做了低风险收拢：
   - `core/events.py` 将 message/update 两条流里的消息转事件逻辑合并为共享 helper，保留原事件类型、角色、metadata 和持久化语义。
   - `storage/repository.py` 将单条/批量消息写入共用同一个 SQL helper，避免重复维护插入消息和刷新 thread 时间的逻辑。
   - `src/agents.egg-info` 生成产物已从版本控制移除，并在 `.gitignore` 忽略 `*.egg-info/`。
-  - Dockerfile 已对齐当前 `AGENT_*` 环境变量和 `agents-api` 命令入口。
+  - Dockerfile 已对齐当时的环境变量和 `agents-api` 命令入口；当前配置模式已改为 YAML。
 - 最近一轮围绕 API 与可部署性完成增强：
   - `POST /chat/stream` SSE 保持与 CLI 同源事件流，但 API 侧过滤 `internal_state`。
   - API 服务支持 `python -m agents.interfaces.api`、`python -m agents.api` 和 `agents-api` 启动。
   - 修复 FastAPI/Starlette 线程池迭代 SSE generator 时的 SQLite 跨线程访问错误。
-  - 存储层新增 PostgreSQL 后端，默认保留 SQLite，并通过环境变量/`.env` 切换。
+  - 存储层新增 PostgreSQL 后端，默认保留 SQLite；当前通过 YAML `settings:` 切换。
   - 所有主要配置集中到 `Settings`：LLM、system prompt、debug、存储、sessions、API host/port/reload、CORS。
-  - API 新增可配置 CORS，中间件仅在 `AGENT_CORS_ORIGINS` 非空时启用。
+  - API 新增可配置 CORS，中间件仅在 YAML `settings.cors_origins` 非空时启用。
   - README 和 `docs/architecture.md` 已同步最新配置、API、SSE、CORS 和存储后端说明。
 - 本轮完成了一次结构性重构：将原先集中在顶层的 `agent_factory.py`、`service.py`、`repository.py`、`db.py`、`cli.py`、`api.py` 拆到功能子包，并保留顶层薄包装以兼容旧导入路径和 `agents` 入口。
 - 新模块边界：
@@ -85,7 +91,7 @@
 - 已用 `.venv/bin/python` 对 `src/agents` 下 Python 文件做 AST 解析验证。
 - 已用 `PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src` 验证 calculator 的加、减、乘、除和除零错误路径。
 - 已验证 `default_tool_providers()` 返回内置 provider。
-- 已验证 API Python 入口的 `--help`，环境变量可注入 API host/port/reload/debug 默认值。
+- 已验证 API Python 入口的 `--help`；API host/port/reload/debug 默认值现在来自 YAML `settings:`。
 - 已验证 CORS 配置解析和 FastAPI `CORSMiddleware` 挂载逻辑；未配置 origins 时不挂载。
 - 已验证 SQLite 默认路径、旧 `connect()` + repository 用法、跨线程 repository 访问、PostgreSQL 配置推断和缺失 DSN/依赖错误提示。
 - 已执行 `git diff --check`。
@@ -96,14 +102,14 @@
 
 - 下一步可以增加一个正式的 Agent 定义层，例如 `agents/` 或 `profiles/`，让不同 Agent 声明 system prompt、默认 skills、memory 策略和 tool providers。
 - 给 `calculator_tool` 增加单元测试，并为 `AgentToolProvider` 的组合逻辑增加测试。
-- 在具备真实 provider 与 PostgreSQL 的环境里，验证 `agents`、`uvicorn agents.interfaces.api:app --reload`、`python -m agents.interfaces.api`、SSE 流和 PostgreSQL 持久化。
+- 在具备真实 provider 与 PostgreSQL 的环境里，验证 `agents`、`uvicorn agents.interfaces.api:app`、`python -m agents.interfaces.api`、SSE 流和 PostgreSQL 持久化。
 - 已将 `src/agents.egg-info` 生成产物移出版本控制，后续不需要同步包元数据文件。
 
 ## 模型与接口
 
 - 用户使用 OpenAI-compatible 服务，而不是固定使用 OpenAI 官方 endpoint。
-- 支持通过 `AGENT_OPENAI_BASE_URL` 和 `AGENT_OPENAI_API_KEY` 配置服务。
-- `AGENT_MODEL` 可使用 `openai:<model-name>` 格式。
+- 支持通过 YAML `settings.openai_base_url` 和 `settings.openai_api_key` 配置服务；这些字段可使用 `${VAR}` 引用密钥。
+- YAML `settings.model` 和 LLM 资源 `model` 可使用 `openai:<model-name>` 格式。
 - 当前强制使用 Chat Completions API。
 - 当前不使用 Responses API，避免请求 `/v1/responses`。
 - 预期请求路径是 `/v1/chat/completions`。

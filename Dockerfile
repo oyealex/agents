@@ -11,7 +11,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md agents.yaml ./
 COPY src ./src
 
 # 默认安装 API 依赖；如需 PostgreSQL 可构建时传入 --build-arg PIP_EXTRAS="api,postgres"
@@ -23,10 +23,7 @@ RUN useradd --create-home --shell /bin/bash appuser
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
 USER appuser
 
-ENV AGENT_API_HOST=0.0.0.0 \
-    AGENT_API_PORT=8000
-
 EXPOSE 8000
 VOLUME ["/app/data"]
 
-CMD ["agents-api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["agents-api", "--agent-config", "/app/agents.yaml"]

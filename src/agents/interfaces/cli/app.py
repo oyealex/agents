@@ -4,13 +4,12 @@ import argparse
 import sys
 import uuid
 
-from agents.config import Settings
 from agents.core.service import AgentService
 from agents.interfaces.cli.parser import build_parser
 from agents.interfaces.cli.renderer import color, render_stream
 from agents.logging import configure_logging, set_logging_verbose
 from agents.application.bootstrap import build_service
-from agents.core.definitions import AgentConfigError, load_agent_registry
+from agents.core.definitions import AgentConfigError, load_agent_registry, load_settings
 from agents.sanitize import sanitize_text
 
 
@@ -18,17 +17,17 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     _normalize_args(args)
-    settings = Settings()
-    configure_logging(verbose=settings.debug if args.debug is None else args.debug)
+    settings = _load_settings(args.agent_config)
+    configure_logging(verbose=settings.debug)
     registry = _load_registry(args.agent_config)
     _validate_agent_name(args.agent_name, registry.list_names())
 
     if args.command == "chat":
         thread_id = _resolve_thread_id(args)
         service = build_service(
-            sessions_dir=args.sessions_dir,
             agent_config_path=args.agent_config,
             agent_registry=registry,
+            settings=settings,
             agent_name=args.agent_name,
         )
         user_id = service.settings.normalize_user_id(args.user_id)
@@ -57,6 +56,13 @@ def main() -> None:
 def _load_registry(agent_config_path):
     try:
         return load_agent_registry(agent_config_path)
+    except AgentConfigError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _load_settings(agent_config_path):
+    try:
+        return load_settings(agent_config_path)
     except AgentConfigError as exc:
         raise SystemExit(str(exc)) from exc
 

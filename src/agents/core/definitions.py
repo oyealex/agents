@@ -14,6 +14,7 @@ from urllib.parse import urlsplit, urlunsplit
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from agents.config import Settings
 from agents.core.tools import AgentToolProvider
 from agents.sanitize import sanitize_text
 
@@ -182,6 +183,7 @@ class AgentResourceConfig(BaseModel):
 class AgentConfigFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    settings: dict[str, Any] = Field(default_factory=dict)
     llms: list[LlmResourceConfig]
     tools: list[ToolResourceConfig]
     agents: list[AgentResourceConfig]
@@ -209,6 +211,36 @@ def load_agent_registry(
         return base_registry
     definitions = load_agent_definitions(path)
     return base_registry.merged_with(definitions)
+
+
+def load_settings(config_path: Path | None = None) -> Settings:
+    """Load runtime settings from the optional agents.yaml settings section."""
+
+    path, explicit = discover_agent_config_path(config_path)
+    yaml_settings: dict[str, Any] = {}
+    secret_values: set[str] = set()
+    if path is not None:
+        if not path.exists():
+            if explicit:
+                raise AgentConfigError(f"Agent config file does not exist: {path}")
+        else:
+            try:
+                raw = _load_yaml_mapping(path)
+                _assert_fixed_top_level(raw, path)
+                raw_settings = _resolve_config_env(
+                    {"settings": raw.get("settings", {})},
+                    secret_values,
+                )
+                yaml_settings = _settings_from_raw(raw_settings.get("settings", {}), path)
+            except AgentConfigError:
+                raise
+            except Exception as exc:
+                raise AgentConfigError(_mask_secrets(str(exc), secret_values)) from exc
+
+    try:
+        return Settings(**yaml_settings)
+    except Exception as exc:
+        raise AgentConfigError(_mask_secrets(str(exc), secret_values)) from exc
 
 
 def load_agent_definitions(config_path: Path) -> tuple[AgentDefinition, ...]:
@@ -257,15 +289,18 @@ def _load_yaml_mapping(config_path: Path) -> dict[str, Any]:
     if loaded is None:
         loaded = {}
     if not isinstance(loaded, dict):
-        raise AgentConfigError("Agent config must be a YAML mapping with llms, tools, and agents")
+        raise AgentConfigError(
+            "Agent config must be a YAML mapping with optional settings plus llms, tools, and agents"
+        )
     return loaded
 
 
 def _assert_fixed_top_level(raw: Mapping[str, Any], config_path: Path) -> None:
-    expected = {"llms", "tools", "agents"}
+    required = {"llms", "tools", "agents"}
+    optional = {"settings"}
     actual = set(raw)
-    missing = sorted(expected - actual)
-    extra = sorted(actual - expected)
+    missing = sorted(required - actual)
+    extra = sorted(actual - required - optional)
     if missing:
         raise AgentConfigError(
             f"Agent config {config_path} is missing top-level sections: {', '.join(missing)}"
@@ -297,9 +332,32 @@ def _resolve_config_env(raw: Any, secret_values: set[str], key_path: tuple[str, 
 def _is_env_resolvable_path(key_path: tuple[str, ...]) -> bool:
     if not key_path:
         return False
+    if key_path[0] == "settings":
+        return True
     if len(key_path) >= 3 and key_path[0] == "tools" and "config" in key_path:
         return True
     return key_path[-1] in {"model", "api_key", "base_url"}
+
+
+def _settings_from_raw(raw: Any, config_path: Path) -> dict[str, Any]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise AgentConfigError("Agent config settings section must be a mapping")
+    allowed = set(Settings.model_fields)
+    unknown = sorted(str(key) for key in raw if str(key) not in allowed)
+    if unknown:
+        raise AgentConfigError(
+            f"Agent config {config_path} has unknown settings keys: {', '.join(unknown)}"
+        )
+    settings = {str(key): value for key, value in raw.items()}
+    for key in ("db_path", "sessions_dir"):
+        value = settings.get(key)
+        if isinstance(value, str) and value:
+            settings[key] = _resolve_config_path(Path(value), config_path)
+        elif isinstance(value, Path):
+            settings[key] = _resolve_config_path(value, config_path)
+    return settings
 
 
 def _is_secret_path(key_path: tuple[str, ...]) -> bool:
