@@ -23,10 +23,10 @@ RUN useradd --create-home --shell /bin/bash appuser
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
 USER appuser
 
-ENV DPM_AGENT_API_HOST=0.0.0.0 \
-    DPM_AGENT_API_PORT=8000
+ENV AGENT_API_HOST=0.0.0.0 \
+    AGENT_API_PORT=8000
 
 EXPOSE 8000
 VOLUME ["/app/data"]
 
-CMD ["dpm-agent-api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["agents-api", "--host", "0.0.0.0", "--port", "8000"]

@@ -9,12 +9,12 @@
 - `tools/calculator.py` 提供四则运算自定义工具示例，默认通过 `default_tool_providers()` 注入 Agent runtime。
 - CLI 代码已拆到 `interfaces/cli/`，参数解析、交互流程和终端渲染相互解耦。
 - REST API 代码已拆到 `interfaces/api/`，支持同步 `POST /chat` 和 SSE 流式 `POST /chat/stream`。
-- API 服务可通过 `uvicorn agents.interfaces.api:app`、`python -m agents.interfaces.api` 或安装后的 `dpm-agent-api` 命令启动。
+- API 服务可通过 `uvicorn agents.interfaces.api:app`、`python -m agents.interfaces.api` 或安装后的 `agents-api` 命令启动。
 - SQLite connection 已配置 `check_same_thread=False`，并由 `ChatRepository` 与 `MemoryRepository` 共享同一把 `RLock` 串行化访问，避免 FastAPI/Starlette 线程池执行同步 SSE generator 时触发跨线程 SQLite 错误。
 - API SSE 响应与 CLI 一样不返回 `internal_state` 事件，只返回面向调用方可展示的 Agent 过程事件。
-- 存储层已支持 SQLite/PostgreSQL 后端切换。默认 SQLite；设置 `DPM_AGENT_STORAGE_BACKEND=postgres` 并提供 `DPM_AGENT_POSTGRES_DSN` 或 `DPM_AGENT_DATABASE_URL` 可切换到 PostgreSQL；若直接设置 `DPM_AGENT_DATABASE_URL` 或通用 `DATABASE_URL` 且未指定 backend，会自动推断为 PostgreSQL。PostgreSQL 依赖为可选 extra：`pip install -e ".[postgres]"`。
+- 存储层已支持 SQLite/PostgreSQL 后端切换。默认 SQLite；设置 `AGENT_STORAGE_BACKEND=postgres` 并提供 `AGENT_POSTGRES_DSN` 可切换到 PostgreSQL。PostgreSQL 依赖为可选 extra：`pip install -e ".[postgres]"`。
 - 配置项已统一抽取到 `Settings` 并支持环境变量/`.env`：包括 app/debug、LLM、system prompt、SQLite/PostgreSQL、sessions 目录以及 API host/port/reload。README 已维护完整环境变量表。
-- API 支持可配置 CORS。设置 `DPM_AGENT_CORS_ORIGINS` 后启用 FastAPI `CORSMiddleware`，并可通过 `DPM_AGENT_CORS_ALLOW_CREDENTIALS`、`DPM_AGENT_CORS_ALLOW_METHODS`、`DPM_AGENT_CORS_ALLOW_HEADERS` 调整策略。
+- API 支持可配置 CORS。设置 `AGENT_CORS_ORIGINS` 后启用 FastAPI `CORSMiddleware`，并可通过 `AGENT_CORS_ALLOW_CREDENTIALS`、`AGENT_CORS_ALLOW_METHODS`、`AGENT_CORS_ALLOW_HEADERS` 调整策略。
 - 支持 `skills/` 目录，技能以 `SKILL.md` 描述。
 - 支持 `memory/` 目录，长期记忆以 Markdown 文件维护。
 - 支持 SQLite 持久化 `threads`、`messages` 和 `memory_entries`。
@@ -33,15 +33,20 @@
 
 ## 最近工作记录
 
+- 本轮按“尽量简化实现、功能不变”做了低风险收拢：
+  - `core/events.py` 将 message/update 两条流里的消息转事件逻辑合并为共享 helper，保留原事件类型、角色、metadata 和持久化语义。
+  - `storage/repository.py` 将单条/批量消息写入共用同一个 SQL helper，避免重复维护插入消息和刷新 thread 时间的逻辑。
+  - `src/agents.egg-info` 生成产物已从版本控制移除，并在 `.gitignore` 忽略 `*.egg-info/`。
+  - Dockerfile 已对齐当前 `AGENT_*` 环境变量和 `agents-api` 命令入口。
 - 最近一轮围绕 API 与可部署性完成增强：
   - `POST /chat/stream` SSE 保持与 CLI 同源事件流，但 API 侧过滤 `internal_state`。
-  - API 服务支持 `python -m agents.interfaces.api`、`python -m agents.api` 和 `dpm-agent-api` 启动。
+  - API 服务支持 `python -m agents.interfaces.api`、`python -m agents.api` 和 `agents-api` 启动。
   - 修复 FastAPI/Starlette 线程池迭代 SSE generator 时的 SQLite 跨线程访问错误。
   - 存储层新增 PostgreSQL 后端，默认保留 SQLite，并通过环境变量/`.env` 切换。
   - 所有主要配置集中到 `Settings`：LLM、system prompt、debug、存储、sessions、API host/port/reload、CORS。
-  - API 新增可配置 CORS，中间件仅在 `DPM_AGENT_CORS_ORIGINS` 非空时启用。
+  - API 新增可配置 CORS，中间件仅在 `AGENT_CORS_ORIGINS` 非空时启用。
   - README 和 `docs/architecture.md` 已同步最新配置、API、SSE、CORS 和存储后端说明。
-- 本轮完成了一次结构性重构：将原先集中在顶层的 `agent_factory.py`、`service.py`、`repository.py`、`db.py`、`cli.py`、`api.py` 拆到功能子包，并保留顶层薄包装以兼容旧导入路径和 `dpm-agent` 入口。
+- 本轮完成了一次结构性重构：将原先集中在顶层的 `agent_factory.py`、`service.py`、`repository.py`、`db.py`、`cli.py`、`api.py` 拆到功能子包，并保留顶层薄包装以兼容旧导入路径和 `agents` 入口。
 - 新模块边界：
   - `application/bootstrap.py`：装配 settings、SQLite connection、repository、AgentRuntime 和 AgentService。
   - `core/agent.py`：DeepAgents runtime 创建、模型、memory、skills、filesystem backend 和工具注入。
@@ -82,24 +87,24 @@
 
 - 下一步可以增加一个正式的 Agent 定义层，例如 `agents/` 或 `profiles/`，让不同 Agent 声明 system prompt、默认 skills、memory 策略和 tool providers。
 - 给 `calculator_tool` 增加单元测试，并为 `AgentToolProvider` 的组合逻辑增加测试。
-- 在具备真实 provider 与 PostgreSQL 的环境里，验证 `dpm-agent`、`uvicorn agents.interfaces.api:app --reload`、`python -m agents.interfaces.api`、SSE 流和 PostgreSQL 持久化。
-- 后续如果继续跟踪 `src/agents.egg-info`，每次 README/依赖/包文件变化后都需要同步；更推荐后续将 egg-info 从版本控制中移除。
+- 在具备真实 provider 与 PostgreSQL 的环境里，验证 `agents`、`uvicorn agents.interfaces.api:app --reload`、`python -m agents.interfaces.api`、SSE 流和 PostgreSQL 持久化。
+- 已将 `src/agents.egg-info` 生成产物移出版本控制，后续不需要同步包元数据文件。
 
 ## 模型与接口
 
 - 用户使用 OpenAI-compatible 服务，而不是固定使用 OpenAI 官方 endpoint。
-- 支持通过 `DPM_AGENT_OPENAI_BASE_URL` 和 `DPM_AGENT_OPENAI_API_KEY` 配置服务。
-- `DPM_AGENT_MODEL` 可使用 `openai:<model-name>` 格式。
+- 支持通过 `AGENT_OPENAI_BASE_URL` 和 `AGENT_OPENAI_API_KEY` 配置服务。
+- `AGENT_MODEL` 可使用 `openai:<model-name>` 格式。
 - 当前强制使用 Chat Completions API。
 - 当前不使用 Responses API，避免请求 `/v1/responses`。
 - 预期请求路径是 `/v1/chat/completions`。
 
 ## CLI 行为
 
-- `dpm-agent` 默认进入交互式连续对话。
-- `dpm-agent chat --thread-id <id>` 可指定会话。
-- `dpm-agent --new` 或 `dpm-agent chat --new` 会生成随机 `thread_id` 并开启新 session。
-- `dpm-agent chat --message "..."`
+- `agents` 默认进入交互式连续对话。
+- `agents chat --thread-id <id>` 可指定会话。
+- `agents --new` 或 `agents chat --new` 会生成随机 `thread_id` 并开启新 session。
+- `agents chat --message "..."`
   可发送单条消息后退出。
 - 交互中 `/exit` 和 `/quit` 退出。
 - 交互中 `/debug on` 开启日志，`/debug off` 关闭日志。

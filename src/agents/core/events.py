@@ -73,43 +73,7 @@ def _extract_content_text(content: Any) -> str:
 
 def _events_from_message_payload(payload: Any) -> Iterator[AgentEvent]:
     message = payload[0] if isinstance(payload, tuple) and payload else payload
-    message_type = _message_type_name(message)
-    text = extract_message_text(message)
-
-    if message_type.endswith("AIMessageChunk"):
-        if text:
-            yield AgentEvent(
-                event_type="assistant_delta",
-                role="assistant",
-                content=text,
-                persist=False,
-            )
-        return
-
-    tool_calls = getattr(message, "tool_calls", None) or []
-    for tool_call in tool_calls:
-        if not _is_complete_tool_call(tool_call):
-            continue
-        yield AgentEvent(
-            event_type="tool_call",
-            role="tool",
-            content=_tool_call_content(tool_call),
-            metadata=_safe_metadata(tool_call),
-        )
-
-    if message_type.endswith("AIMessage") and text:
-        yield AgentEvent(
-            event_type="assistant_message",
-            role="assistant",
-            content=text,
-        )
-    elif message_type.endswith("ToolMessage"):
-        yield AgentEvent(
-            event_type="tool_result",
-            role="tool",
-            content=text,
-            metadata={"tool_call_id": getattr(message, "tool_call_id", None)},
-        )
+    yield from _events_from_message(message, node_name=None, stream_delta=True)
 
 
 def _events_from_update_payload(payload: Any) -> Iterator[AgentEvent]:
@@ -138,9 +102,29 @@ def _events_from_update_payload(payload: Any) -> Iterator[AgentEvent]:
 
 
 def _events_from_update_message(message: Any, node_name: str) -> Iterator[AgentEvent]:
+    yield from _events_from_message(message, node_name=node_name, stream_delta=False)
+
+
+def _events_from_message(
+    message: Any,
+    node_name: str | None,
+    stream_delta: bool,
+) -> Iterator[AgentEvent]:
     message_type = _message_type_name(message)
     text = extract_message_text(message)
-    metadata = {"node": node_name, "message_type": message_type}
+    base_metadata = (
+        {"node": node_name, "message_type": message_type} if node_name is not None else {}
+    )
+
+    if stream_delta and message_type.endswith("AIMessageChunk"):
+        if text:
+            yield AgentEvent(
+                event_type="assistant_delta",
+                role="assistant",
+                content=text,
+                persist=False,
+            )
+        return
 
     tool_calls = getattr(message, "tool_calls", None) or []
     for tool_call in tool_calls:
@@ -150,36 +134,37 @@ def _events_from_update_message(message: Any, node_name: str) -> Iterator[AgentE
             event_type="tool_call",
             role="tool",
             content=_tool_call_content(tool_call),
-            metadata={**metadata, **_safe_metadata(tool_call)},
+            metadata={**base_metadata, **_safe_metadata(tool_call)},
         )
 
     if message_type.endswith("ToolMessage"):
+        metadata = {"tool_call_id": getattr(message, "tool_call_id", None)}
         yield AgentEvent(
             event_type="tool_result",
             role="tool",
             content=text,
-            metadata={**metadata, "tool_call_id": getattr(message, "tool_call_id", None)},
+            metadata={**base_metadata, **metadata},
         )
     elif message_type.endswith("AIMessage") and text:
         yield AgentEvent(
             event_type="assistant_message",
             role="assistant",
             content=text,
-            metadata=metadata,
+            metadata=base_metadata,
         )
     elif _is_reasoning_message(message_type) and text:
         yield AgentEvent(
             event_type="thinking",
             role="assistant",
             content=text,
-            metadata=metadata,
+            metadata=base_metadata,
         )
-    elif text:
+    elif node_name is not None and text:
         yield AgentEvent(
             event_type="internal_state",
             role="system",
             content=text,
-            metadata=metadata,
+            metadata=base_metadata,
             persist=False,
         )
 

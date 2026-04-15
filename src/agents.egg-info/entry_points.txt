@@ -1,3 +1,0 @@
-[console_scripts]
-agents = agents.cli:main
-agents-api = agents.api:main

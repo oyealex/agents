@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 import re
 import shutil
@@ -20,6 +21,7 @@ DEFAULT_SYSTEM_PROMPT = "你是我的个人 Agent。"
 DEFAULT_AGENT_CONFIG_PATH = Path("agents.yaml")
 _ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$")
 _SECRET_KEYS = ("key", "secret", "token", "password", "dsn", "credential")
+_LOGGER = logging.getLogger(__name__)
 
 
 class AgentConfigError(ValueError):
@@ -509,26 +511,43 @@ def _mask_url_credentials(message: str) -> str:
 
 def prepare_external_path_in_session(
     source: Path,
-    session_dir: Path,
+    target_dir: Path,
     category: str,
 ) -> Path:
-    """Mirror a configured read-only source into a session-owned directory."""
+    """Copy a configured source into a session-owned resource directory."""
 
     source = source.expanduser().resolve()
-    target_root = session_dir / ".configured" / category / _path_token(source)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / source.name
+    if source == target.resolve():
+        return target
     if source.is_dir():
-        if target_root.exists():
-            shutil.rmtree(target_root)
-        shutil.copytree(source, target_root)
-        return target_root
+        if target.exists():
+            _LOGGER.info(
+                "Overwriting configured %s directory %s from %s",
+                category,
+                target,
+                source,
+            )
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        shutil.copytree(source, target)
+        return target
     if source.is_file():
-        target_root.mkdir(parents=True, exist_ok=True)
-        target = target_root / source.name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            _LOGGER.info(
+                "Overwriting configured %s file %s from %s",
+                category,
+                target,
+                source,
+            )
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
         shutil.copy2(source, target)
         return target
     raise AgentConfigError(f"Configured {category} path does not exist: {source}")
-
-
-def _path_token(path: Path) -> str:
-    sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "_", path.as_posix()).strip("._-")
-    return sanitized[-80:] or "path"

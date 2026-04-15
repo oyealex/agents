@@ -134,7 +134,7 @@ agents: []
 
 系统提示词可用 `system_prompt` 内联，也可用 `system_prompt_file` 引用外部 UTF-8 文件；二者不能同时设置。相对路径按 YAML 文件所在目录解析，绝对路径按原路径解析。
 
-`skills` 和 `memory` 支持布尔值或 `{ enabled, paths }` 对象。启用但未指定 `paths` 时加载当前 session 默认目录；指定额外路径时，运行时会把这些只读来源镜像到当前 session 的 `.configured/` 目录，再交给 DeepAgents 的 `FilesystemBackend` 使用。这样不会扩大文件工具的可写根目录。
+`skills` 和 `memory` 支持布尔值或 `{ enabled, paths }` 对象。启用但未指定 `paths` 时加载当前 session 默认目录；指定额外路径时，启动 Agent 前会把这些来源复制到当前 session 的 `skills/` 或 `memory/` 目录，同名文件或目录会覆盖并记录日志。DeepAgents 创建参数固定引用 session 内的 `/skills` 和 `/memory/*.md`，不会直接暴露外部路径。
 
 `event_content_limits` 支持按 Agent 限制可见事件内容长度。`tool_events` 会同时作用于 `tool_call` 和 `tool_result`；`tool_call`、`tool_result` 可分别覆盖。超出限制的内容会保留前缀，并追加 `... (remaining N chars)`，CLI、API SSE 和持久化事件使用同一截断结果。
 

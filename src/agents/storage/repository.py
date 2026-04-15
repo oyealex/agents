@@ -39,29 +39,18 @@ class ChatRepository:
         metadata: dict[str, Any] | None = None,
     ) -> None:
         thread_id = sanitize_text(thread_id)
-        with self.lock:
-            self.database.execute(
-                """
-                INSERT INTO messages(thread_id, role, message_type, content, metadata_json)
-                VALUES (?, ?, ?, ?, ?)
-                """,
+        self._add_message_rows(
+            thread_id,
+            [
                 (
                     thread_id,
                     sanitize_text(role),
                     sanitize_text(message_type),
                     sanitize_text(content),
-                    json.dumps(sanitize_metadata(metadata), ensure_ascii=False),
-                ),
-            )
-            self.database.execute(
-                """
-                UPDATE threads
-                SET updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                """,
-                (thread_id,),
-            )
-            self.database.commit()
+                    _encode_metadata(metadata),
+                )
+            ],
+        )
 
     def add_event(self, thread_id: str, event: AgentEvent) -> None:
         self.add_message(
@@ -80,13 +69,16 @@ class ChatRepository:
                 sanitize_text(event.role),
                 sanitize_text(event.event_type),
                 sanitize_text(event.content),
-                json.dumps(sanitize_metadata(event.metadata), ensure_ascii=False),
+                _encode_metadata(event.metadata),
             )
             for event in events
             if event.persist
         ]
         if not rows:
             return
+        self._add_message_rows(thread_id, rows)
+
+    def _add_message_rows(self, thread_id: str, rows: list[tuple[Any, ...]]) -> None:
         with self.lock:
             self.database.executemany(
                 """
@@ -162,6 +154,10 @@ def _decode_metadata(metadata_json: str | None) -> dict[str, Any]:
     if isinstance(decoded, dict):
         return sanitize_metadata(decoded)
     return {}
+
+
+def _encode_metadata(metadata: dict[str, Any] | None) -> str:
+    return json.dumps(sanitize_metadata(metadata), ensure_ascii=False)
 
 
 def _as_database(database: Database | sqlite3.Connection) -> Database:

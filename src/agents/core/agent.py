@@ -54,20 +54,12 @@ def _collect_memory_files(
     settings: Settings,
     thread_id: str,
     session_dir: Path,
-    definition: AgentDefinition,
 ) -> list[str]:
     memory_dir = settings.effective_session_memory_dir(thread_id)
     files: list[str] = []
     if memory_dir.exists():
         for path in sorted(memory_dir.rglob("*.md")):
             files.append(_to_backend_absolute(path, session_dir))
-    for source in definition.memory.paths:
-        mirrored = prepare_external_path_in_session(source, session_dir, "memory")
-        if mirrored.is_dir():
-            for path in sorted(mirrored.rglob("*.md")):
-                files.append(_to_backend_absolute(path, session_dir))
-        else:
-            files.append(_to_backend_absolute(mirrored, session_dir))
     return files
 
 
@@ -75,17 +67,31 @@ def _collect_skill_roots(
     settings: Settings,
     thread_id: str,
     session_dir: Path,
-    definition: AgentDefinition,
 ) -> list[str]:
     skills_dir = settings.effective_session_skills_dir(thread_id)
-    roots: list[str] = []
     if skills_dir.exists():
-        roots.append(_to_backend_absolute(skills_dir, session_dir))
+        return [_to_backend_absolute(skills_dir, session_dir)]
+    return []
+
+
+def _sync_configured_skills(
+    settings: Settings,
+    thread_id: str,
+    definition: AgentDefinition,
+) -> None:
+    skills_dir = settings.effective_session_skills_dir(thread_id)
     for source in definition.skills.paths:
-        mirrored = prepare_external_path_in_session(source, session_dir, "skills")
-        root = mirrored if mirrored.is_dir() else mirrored.parent
-        roots.append(_to_backend_absolute(root, session_dir))
-    return roots
+        prepare_external_path_in_session(source, skills_dir, "skills")
+
+
+def _sync_configured_memory(
+    settings: Settings,
+    thread_id: str,
+    definition: AgentDefinition,
+) -> None:
+    memory_dir = settings.effective_session_memory_dir(thread_id)
+    for source in definition.memory.paths:
+        prepare_external_path_in_session(source, memory_dir, "memory")
 
 
 def _openai_model_name(model: str) -> str:
@@ -118,6 +124,10 @@ def build_agent(
     tools: Iterable[Any] = (),
 ):
     session_dir = settings.ensure_session_directories(thread_id)
+    if definition.include_skills:
+        _sync_configured_skills(settings, thread_id, definition)
+    if definition.include_memory:
+        _sync_configured_memory(settings, thread_id, definition)
     model = build_chat_model(settings, definition.llm)
     backend = FilesystemBackend(root_dir=str(session_dir), virtual_mode=True)
     tool_list = list(tools)
@@ -129,9 +139,9 @@ def build_agent(
         **definition.create_kwargs,
     }
     if definition.include_memory:
-        kwargs["memory"] = _collect_memory_files(settings, thread_id, session_dir, definition)
+        kwargs["memory"] = _collect_memory_files(settings, thread_id, session_dir)
     if definition.include_skills:
-        kwargs["skills"] = _collect_skill_roots(settings, thread_id, session_dir, definition)
+        kwargs["skills"] = _collect_skill_roots(settings, thread_id, session_dir)
     if tool_list:
         kwargs["tools"] = tool_list
     if definition.subagent_names:
@@ -166,6 +176,7 @@ def _build_subagent_specs(
         if tool_list:
             spec["tools"] = tool_list
         if definition.include_skills:
-            spec["skills"] = _collect_skill_roots(settings, thread_id, session_dir, definition)
+            _sync_configured_skills(settings, thread_id, definition)
+            spec["skills"] = _collect_skill_roots(settings, thread_id, session_dir)
         specs.append(spec)
     return specs

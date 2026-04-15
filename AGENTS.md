@@ -117,4 +117,4 @@ git diff --check
 ## 文档同步
 
 - 改 CLI、API、配置、存储、Agent registry、tool provider、memory/skills 行为时，同步更新 `README.md` 和必要的 `docs/architecture.md`。
-- 如果继续跟踪 `src/agents.egg-info`，README、依赖或包文件变化后要注意它可能需要同步；更推荐后续从版本控制中移除生成产物。
+- 不要跟踪 `*.egg-info/` 生成产物；README、依赖或包文件变化后通过重新安装生成本地元数据即可。
