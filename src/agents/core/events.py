@@ -129,6 +129,8 @@ def _events_from_message(
         for tool_call in tool_calls:
             if not _is_complete_tool_call(tool_call):
                 continue
+            if not _has_meaningful_tool_args(tool_call):
+                continue
             yield AgentEvent(
                 event_type="tool_call",
                 role="tool",
@@ -309,6 +311,17 @@ def _tool_call_args(tool_call: Any) -> Any:
     if hasattr(tool_call, "args"):
         return getattr(tool_call, "args")
     return getattr(tool_call, "arguments", None)
+
+
+def _has_meaningful_tool_args(tool_call: Any) -> bool:
+    args = _tool_call_args(tool_call)
+    if isinstance(args, dict):
+        return bool(args)
+    if isinstance(args, str):
+        return bool(args.strip())
+    if isinstance(args, list | tuple | set):
+        return bool(args)
+    return args is not None
 
 
 def _safe_metadata(value: Any) -> dict[str, Any]:
