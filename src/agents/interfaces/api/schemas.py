@@ -2,18 +2,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from agents.domain.models import AgentEvent, Message, ThreadSummary
 
 
 class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     thread_id: str
     message: str
     user_id: str | None = None
 
+    @property
+    def extension_fields(self) -> dict[str, Any]:
+        return dict(self.model_extra or {})
+
 
 class ChatResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     user_id: str
     thread_id: str
     reply: str
@@ -73,16 +81,25 @@ class ChatHistoryResponse(BaseModel):
 
 
 class AgentEventResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     event_type: str
     role: str
     content: str
     metadata: dict[str, Any] | None = None
 
     @classmethod
-    def from_event(cls, event: AgentEvent) -> AgentEventResponse:
-        return cls(
-            event_type=event.event_type,
-            role=event.role,
-            content=event.content,
-            metadata=event.metadata,
-        )
+    def from_event(
+        cls,
+        event: AgentEvent,
+        extension_fields: dict[str, Any] | None = None,
+    ) -> AgentEventResponse:
+        payload: dict[str, Any] = {
+            "event_type": event.event_type,
+            "role": event.role,
+            "content": event.content,
+            "metadata": event.metadata,
+        }
+        if extension_fields:
+            payload.update(extension_fields)
+        return cls.model_validate(payload)

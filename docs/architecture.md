@@ -24,6 +24,7 @@
 - `agents.interfaces.cli.renderer`：终端事件渲染。
 - `agents.interfaces.cli.app`：CLI 交互流程。
 - `agents.interfaces.api.app`：FastAPI app、REST 与 SSE endpoint。
+- `agents.interfaces.api.filters`：API 过滤层扩展点（请求改写、响应扩展、SSE 事件改写/过滤）。
 - `agents.interfaces.api.sse`：SSE 事件编码。
 - `agents.interfaces.api.server`：Python 方式启动 API 服务，支持 host、port、reload 和 debug 配置。
 
@@ -38,6 +39,14 @@ API 当前支持：
 - `GET /users/{user_id}/chats/{thread_id}/messages`：分页查询指定用户、指定聊天的历史消息。
 
 SSE 接口复用 `AgentService.chat_stream()`，因此与 CLI 使用同一套事件归一化逻辑。API 会过滤 `internal_state`，不会把 DeepAgents/LangGraph 的内部状态同步事件暴露给前端。API 启动时加载完整 Agent registry，请求体不支持切换 Agent；旧 `/chat` 与 `/chat/stream` 使用启动参数中的默认 Agent，新 `/agents/{agent_name}/...` 路由通过 URL 选择 Agent。聊天请求通过 Body 字段 `user_id` 区分用户作用域，未传时使用默认用户 `default`。跨域访问通过 FastAPI `CORSMiddleware` 实现，只有 `agents.yaml` 的 `settings.cors_origins` 配置非空后才启用 CORS。
+
+API 还提供可插拔过滤层 `ApiFilterPipeline`：
+
+- `transform_chat_request`：处理/改写请求（可读取与标准字段平级的自定义字段）。
+- `transform_event`：逐条处理 SSE 事件，可按类型过滤或改写。
+- `chat_response_fields` / `event_fields`：向同步响应与 SSE 事件追加顶层自定义字段。
+
+过滤层只在 API 接入层生效，不改变 `AgentService` 和持久化层的职责边界。
 
 ### 2. 应用服务层
 

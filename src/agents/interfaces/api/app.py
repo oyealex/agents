@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -8,7 +9,10 @@ from fastapi.responses import StreamingResponse
 
 from agents.config import Settings
 from agents.core.service import AgentService
+from agents.domain.models import AgentEvent
+from agents.interfaces.api.filters import ApiFilter, ApiFilterPipeline
 from agents.interfaces.api.schemas import (
+    AgentEventResponse,
     ChatHistoryResponse,
     ChatListResponse,
     ChatRequest,
@@ -26,6 +30,7 @@ def create_app(
     agent_name: str = "default",
     agent_config_path: Path | None = None,
     agent_registry: AgentRegistry | None = None,
+    api_filters: Sequence[ApiFilter] | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Agents API")
     settings = service.settings if service is not None else Settings.load(agent_config_path)
@@ -41,6 +46,7 @@ def create_app(
     app.state.agent_config_path = agent_config_path
     app.state.agent_registry = registry
     app.state.agent_services = {}
+    app.state.api_filter_pipeline = ApiFilterPipeline(api_filters)
     if service is not None:
         app.state.agent_services[agent_name] = service
 
@@ -59,25 +65,58 @@ def create_app(
     @app.post("/agents/{selected_agent_name}/chat", response_model=ChatResponse)
     def chat_for_agent(selected_agent_name: str, request: ChatRequest) -> ChatResponse:
         agent_service = _get_agent_service(app, selected_agent_name)
+        request = _get_filter_pipeline(app).apply_request(request, agent_name=selected_agent_name)
         user_id = agent_service.settings.normalize_user_id(request.user_id)
         result = agent_service.chat(
             thread_id=request.thread_id,
             message=request.message,
             user_id=user_id,
         )
-        return ChatResponse(user_id=result.user_id, thread_id=result.thread_id, reply=result.reply)
+        extension_fields = _get_filter_pipeline(app).collect_chat_response_fields(
+            result,
+            request=request,
+            agent_name=selected_agent_name,
+        )
+        payload = {
+            "user_id": result.user_id,
+            "thread_id": result.thread_id,
+            "reply": result.reply,
+        }
+        if extension_fields:
+            payload.update(extension_fields)
+        return ChatResponse.model_validate(
+            payload,
+        )
 
     @app.post("/agents/{selected_agent_name}/chat/stream")
     def chat_stream_for_agent(selected_agent_name: str, request: ChatRequest) -> StreamingResponse:
         agent_service = _get_agent_service(app, selected_agent_name)
+        request = _get_filter_pipeline(app).apply_request(request, agent_name=selected_agent_name)
         user_id = agent_service.settings.normalize_user_id(request.user_id)
         events = agent_service.chat_stream(
             thread_id=request.thread_id,
             message=request.message,
             user_id=user_id,
         )
+
+        def event_serializer(event: AgentEvent) -> AgentEventResponse:
+            extension_fields = _get_filter_pipeline(app).collect_event_fields(
+                event,
+                request=request,
+                agent_name=selected_agent_name,
+            )
+            return AgentEventResponse.from_event(event, extension_fields=extension_fields)
+
         return StreamingResponse(
-            stream_agent_events(events),
+            stream_agent_events(
+                _iter_filtered_events(
+                    events,
+                    request=request,
+                    selected_agent_name=selected_agent_name,
+                    app=app,
+                ),
+                encode_event=event_serializer,
+            ),
             media_type="text/event-stream",
             headers={
                 "Cache-Control": "no-cache",
@@ -147,6 +186,28 @@ def _get_agent_service(app: FastAPI, agent_name: str) -> AgentService:
             agent_name=agent_name,
         )
     return services[agent_name]
+
+
+def _get_filter_pipeline(app: FastAPI) -> ApiFilterPipeline:
+    return app.state.api_filter_pipeline
+
+
+def _iter_filtered_events(
+    events: Iterable[AgentEvent],
+    *,
+    request: ChatRequest,
+    selected_agent_name: str,
+    app: FastAPI,
+) -> Iterator[AgentEvent]:
+    pipeline = _get_filter_pipeline(app)
+    for event in events:
+        filtered_event = pipeline.apply_event(
+            event,
+            request=request,
+            agent_name=selected_agent_name,
+        )
+        if filtered_event is not None:
+            yield filtered_event
 
 
 def _configure_cors(app: FastAPI, settings: Settings) -> None:
