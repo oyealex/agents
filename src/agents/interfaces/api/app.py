@@ -28,7 +28,7 @@ def create_app(
     agent_registry: AgentRegistry | None = None,
 ) -> FastAPI:
     app = FastAPI(title="Agents API")
-    settings = service.settings if service is not None else Settings()
+    settings = service.settings if service is not None else Settings.load(agent_config_path)
     try:
         registry = agent_registry or load_agent_registry(agent_config_path)
     except AgentConfigError as exc:

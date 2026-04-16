@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--user-id",
         default=None,
-        help="User ID for session isolation. Defaults to AGENT_DEFAULT_USER_ID or 'default'.",
+        help="User ID for session isolation. Defaults to value from agents.yaml settings.",
     )
     parser.add_argument(
         "--message",
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent-config",
         type=Path,
         default=None,
-        help="Path to agents.yaml. Defaults to ./agents.yaml when it exists.",
+        help="Path to agents.yaml (includes settings + agent registry). Defaults to ./agents.yaml.",
     )
     parser.add_argument(
         "--debug",

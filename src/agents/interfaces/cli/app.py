@@ -4,7 +4,7 @@ import argparse
 import sys
 import uuid
 
-from agents.config import Settings
+from agents.config import Settings, SettingsError
 from agents.core.service import AgentService
 from agents.interfaces.cli.parser import build_parser
 from agents.interfaces.cli.renderer import color, render_stream
@@ -18,7 +18,10 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     _normalize_args(args)
-    settings = Settings()
+    try:
+        settings = Settings.load(args.agent_config)
+    except SettingsError as exc:
+        raise SystemExit(str(exc)) from exc
     configure_logging(verbose=settings.debug if args.debug is None else args.debug)
     registry = _load_registry(args.agent_config)
     _validate_agent_name(args.agent_name, registry.list_names())

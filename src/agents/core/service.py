@@ -65,9 +65,7 @@ class AgentService:
         messages.append({"role": "user", "content": message})
 
         logger.info(
-            "Invoking agent: model=%s base_url=%s api_mode=chat_completions message_count=%d session_dir=%s",
-            self.settings.effective_model_name,
-            self.settings.effective_openai_base_url,
+            "Invoking agent: api_mode=chat_completions message_count=%d session_dir=%s",
             len(messages),
             self.settings.effective_session_dir(user_id, thread_id),
         )

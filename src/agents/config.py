@@ -3,31 +3,31 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+from typing import Any
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from agents.sanitize import sanitize_text
 
+DEFAULT_SETTINGS_PATH = Path("agents.yaml")
+_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_prefix="AGENT_",
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+
+class SettingsError(ValueError):
+    """Raised when runtime settings are missing or invalid."""
+
+
+class Settings(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
     app_name: str = "agents"
     debug: bool = False
-    model: str = "openai:gpt-4.1"
     storage_backend: str = "sqlite"
     postgres_dsn: str | None = Field(default=None)
     db_path: Path = Field(default=Path("./data/agent.sqlite3"))
     sessions_dir: Path = Field(default=Path("./data/sessions"))
     default_user_id: str = "default"
-    openai_base_url: str = "https://api.openai.com/v1"
-    openai_api_key: str | None = Field(default=None)
     api_host: str = "127.0.0.1"
     api_port: int = 8000
     api_reload: bool = False
@@ -35,7 +35,21 @@ class Settings(BaseSettings):
     cors_allow_credentials: bool = False
     cors_allow_methods: str = "*"
     cors_allow_headers: str = "*"
-    custom_env_prefixes: str = "AGENT_CUSTOM_,AGENT_AGENT_,AGENT_TOOL_"
+
+    @classmethod
+    def load(cls, config_path: Path | None = None, **overrides: Any) -> Settings:
+        path = (config_path or DEFAULT_SETTINGS_PATH).expanduser().resolve()
+        raw = _load_yaml_mapping(path)
+        settings_section = raw.get("settings")
+        if not isinstance(settings_section, dict):
+            raise SettingsError(
+                f"Agent config {path} must contain a top-level 'settings' mapping."
+            )
+        resolved = _resolve_env_references(settings_section, ("settings",))
+        try:
+            return cls.model_validate({**resolved, **overrides})
+        except ValidationError as exc:
+            raise SettingsError(f"Invalid settings in {path}: {exc}") from exc
 
     def ensure_directories(self) -> None:
         if self.effective_storage_backend == "sqlite":
@@ -43,28 +57,8 @@ class Settings(BaseSettings):
         self.effective_sessions_dir.mkdir(parents=True, exist_ok=True)
 
     @property
-    def effective_openai_base_url(self) -> str:
-        return self.openai_base_url
-
-    @property
-    def effective_model_name(self) -> str:
-        if self.model.startswith("openai:"):
-            return self.model.removeprefix("openai:")
-        return self.model
-
-    @property
-    def has_openai_api_key(self) -> bool:
-        return bool(self.openai_api_key)
-
-    @property
     def effective_storage_backend(self) -> str:
         backend = sanitize_text(self.storage_backend).lower().strip()
-        if backend in {"postgresql", "pg"}:
-            return "postgres"
-        if backend == "sqlite":
-            return "sqlite"
-        if backend == "postgres":
-            return "postgres"
         return backend
 
     @property
@@ -92,53 +86,8 @@ class Settings(BaseSettings):
         return self.sessions_dir.expanduser().resolve()
 
     @property
-    def effective_custom_env_prefixes(self) -> list[str]:
-        prefixes = _split_csv(self.custom_env_prefixes)
-        cleaned: list[str] = []
-        for prefix in prefixes:
-            normalized = prefix.strip()
-            if not normalized:
-                continue
-            if not normalized.endswith("_"):
-                normalized = f"{normalized}_"
-            cleaned.append(normalized.upper())
-        return cleaned
-
-    @property
-    def effective_custom_env(self) -> dict[str, str]:
-        return self.collect_custom_env()
-
-    @property
-    def effective_custom_agent_env(self) -> dict[str, str]:
-        return self.collect_custom_env(prefixes=("AGENT_AGENT_",))
-
-    @property
-    def effective_custom_tool_env(self) -> dict[str, str]:
-        return self.collect_custom_env(prefixes=("AGENT_TOOL_",))
-
-    @property
     def effective_default_user_id(self) -> str:
         return safe_path_id(self.default_user_id)
-
-    def collect_custom_env(self, prefixes: tuple[str, ...] | None = None) -> dict[str, str]:
-        active_prefixes = (
-            tuple(prefix.upper() for prefix in prefixes)
-            if prefixes is not None
-            else tuple(self.effective_custom_env_prefixes)
-        )
-        if not active_prefixes:
-            return {}
-        known_setting_env_keys = {
-            f"AGENT_{name}".upper() for name in self.model_fields if name != "custom_env_prefixes"
-        }
-        custom_env: dict[str, str] = {}
-        for key, value in os.environ.items():
-            upper_key = key.upper()
-            if upper_key in known_setting_env_keys:
-                continue
-            if any(upper_key.startswith(prefix) for prefix in active_prefixes):
-                custom_env[upper_key] = sanitize_text(value)
-        return custom_env
 
     def normalize_user_id(self, user_id: str | None = None) -> str:
         return safe_path_id(user_id or self.effective_default_user_id)
@@ -189,3 +138,38 @@ def safe_path_id(value: str | None, default: str = "default") -> str:
 
 def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in sanitize_text(value).split(",") if item.strip()]
+
+
+def _load_yaml_mapping(config_path: Path) -> dict[str, Any]:
+    try:
+        loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise SettingsError(f"Settings file does not exist: {config_path}") from exc
+    except yaml.YAMLError as exc:
+        raise SettingsError(f"Invalid YAML in settings file {config_path}: {exc}") from exc
+    if loaded is None:
+        loaded = {}
+    if not isinstance(loaded, dict):
+        raise SettingsError("Settings file must be a YAML mapping.")
+    return loaded
+
+
+def _resolve_env_references(value: Any, key_path: tuple[str, ...]) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _resolve_env_references(item, (*key_path, str(key)))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve_env_references(item, key_path) for item in value]
+    if isinstance(value, str):
+        match = _ENV_REF_RE.match(value)
+        if match:
+            env_name = match.group(1)
+            if env_name not in os.environ:
+                key = ".".join(key_path) if key_path else "<root>"
+                raise SettingsError(
+                    f"Environment variable '{env_name}' is not set for settings key '{key}'."
+                )
+            return sanitize_text(os.environ[env_name])
+    return value

@@ -19,7 +19,7 @@ from agents.sanitize import sanitize_text
 
 DEFAULT_SYSTEM_PROMPT = "你是我的个人 Agent。"
 DEFAULT_AGENT_CONFIG_PATH = Path("agents.yaml")
-_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$")
+_ENV_REF_RE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 _SECRET_KEYS = ("key", "secret", "token", "password", "dsn", "credential")
 _LOGGER = logging.getLogger(__name__)
 
@@ -182,6 +182,7 @@ class AgentResourceConfig(BaseModel):
 class AgentConfigFile(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    settings: dict[str, Any] = Field(default_factory=dict)
     llms: list[LlmResourceConfig]
     tools: list[ToolResourceConfig]
     agents: list[AgentResourceConfig]
@@ -235,11 +236,9 @@ def resolve_env_reference(value: str) -> str:
     match = _ENV_REF_RE.match(value)
     if not match:
         return value
-    env_name, default = match.groups()
+    env_name = match.group(1)
     if env_name in os.environ:
         return sanitize_text(os.environ[env_name])
-    if default is not None:
-        return sanitize_text(default)
     raise AgentConfigError(f"Environment variable '{env_name}' is not set")
 
 
@@ -262,7 +261,7 @@ def _load_yaml_mapping(config_path: Path) -> dict[str, Any]:
 
 
 def _assert_fixed_top_level(raw: Mapping[str, Any], config_path: Path) -> None:
-    expected = {"llms", "tools", "agents"}
+    expected = {"settings", "llms", "tools", "agents"}
     actual = set(raw)
     missing = sorted(expected - actual)
     extra = sorted(actual - expected)
