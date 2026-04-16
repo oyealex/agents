@@ -118,15 +118,23 @@ class AgentService:
         config = {"configurable": {"thread_id": runtime_thread_id}}
         agent = self._get_agent(user_id, thread_id)
         try:
-            stream = agent.stream(payload, config=config, stream_mode=["messages", "updates"])
-        except TypeError:
-            result = agent.invoke(payload, config=config)
-            yield AgentEvent(
-                event_type="assistant_message",
-                role="assistant",
-                content=extract_last_text(result),
+            stream = agent.stream(
+                payload,
+                config=config,
+                stream_mode=["messages", "updates"],
+                subgraphs=True,
             )
-            return
+        except TypeError:
+            try:
+                stream = agent.stream(payload, config=config, stream_mode=["messages", "updates"])
+            except TypeError:
+                result = agent.invoke(payload, config=config)
+                yield AgentEvent(
+                    event_type="assistant_message",
+                    role="assistant",
+                    content=extract_last_text(result),
+                )
+                return
 
         for chunk in stream:
             yield from events_from_stream_chunk(chunk)

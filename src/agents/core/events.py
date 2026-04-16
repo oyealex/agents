@@ -8,13 +8,14 @@ from agents.sanitize import sanitize_json_value, sanitize_metadata, sanitize_tex
 
 
 def events_from_stream_chunk(chunk: Any) -> Iterator[AgentEvent]:
-    if isinstance(chunk, tuple) and len(chunk) == 2:
-        mode, payload = chunk
+    normalized = _normalize_stream_chunk(chunk)
+    if normalized is not None:
+        mode, payload, namespace = normalized
         if mode == "messages":
-            yield from _events_from_message_payload(payload)
+            yield from _events_from_message_payload(payload, namespace=namespace)
             return
         if mode == "updates":
-            yield from _events_from_update_payload(payload)
+            yield from _events_from_update_payload(payload, namespace=namespace)
             return
 
     yield from _events_from_update_payload(chunk)
@@ -71,21 +72,28 @@ def _extract_content_text(content: Any) -> str:
     return sanitize_text(str(content))
 
 
-def _events_from_message_payload(payload: Any) -> Iterator[AgentEvent]:
+def _events_from_message_payload(
+    payload: Any,
+    namespace: str | None = None,
+) -> Iterator[AgentEvent]:
     message = payload[0] if isinstance(payload, tuple) and payload else payload
-    yield from _events_from_message(message, node_name=None, stream_delta=True)
+    yield from _events_from_message(message, node_name=namespace, stream_delta=True)
 
 
-def _events_from_update_payload(payload: Any) -> Iterator[AgentEvent]:
+def _events_from_update_payload(
+    payload: Any,
+    namespace: str | None = None,
+) -> Iterator[AgentEvent]:
     if isinstance(payload, dict):
         for node_name, node_update in payload.items():
+            scoped_node_name = _scoped_node_name(namespace, node_name)
             messages = _extract_update_messages(node_update)
             if not messages:
-                if _is_internal_state_update(node_name, node_update):
+                if _is_internal_state_update(scoped_node_name, node_update):
                     yield AgentEvent(
                         event_type="internal_state",
                         role="system",
-                        content=f"{node_name} updated",
+                        content=f"{scoped_node_name} updated",
                         metadata=_safe_metadata(node_update),
                         persist=False,
                     )
@@ -93,12 +101,12 @@ def _events_from_update_payload(payload: Any) -> Iterator[AgentEvent]:
                 yield AgentEvent(
                     event_type="agent_step",
                     role="system",
-                    content=f"{node_name} updated",
+                    content=f"{scoped_node_name} updated",
                     metadata=_safe_metadata(node_update),
                 )
                 continue
             for message in messages:
-                yield from _events_from_update_message(message, node_name)
+                yield from _events_from_update_message(message, scoped_node_name)
 
 
 def _events_from_update_message(message: Any, node_name: str) -> Iterator[AgentEvent]:
@@ -196,6 +204,41 @@ def _extract_update_messages(update: Any) -> list[Any]:
     if messages is not None:
         return [messages]
     return []
+
+
+def _normalize_stream_chunk(chunk: Any) -> tuple[str, Any, str | None] | None:
+    if not isinstance(chunk, tuple):
+        return None
+    if len(chunk) == 2:
+        first, second = chunk
+        if isinstance(first, str) and first in {"messages", "updates"}:
+            return first, second, None
+        if isinstance(first, tuple):
+            return "updates", second, _namespace_to_text(first)
+        return None
+    if len(chunk) == 3:
+        namespace, mode, payload = chunk
+        if isinstance(mode, str) and mode in {"messages", "updates"}:
+            return mode, payload, _namespace_to_text(namespace)
+    return None
+
+
+def _namespace_to_text(namespace: Any) -> str | None:
+    if isinstance(namespace, tuple):
+        parts = [str(part).strip() for part in namespace if str(part).strip()]
+        if parts:
+            return " / ".join(parts)
+        return None
+    if isinstance(namespace, str):
+        cleaned = namespace.strip()
+        return cleaned or None
+    return None
+
+
+def _scoped_node_name(namespace: str | None, node_name: str) -> str:
+    if namespace:
+        return f"{namespace} / {node_name}"
+    return node_name
 
 
 def _message_type_name(message: Any) -> str:
