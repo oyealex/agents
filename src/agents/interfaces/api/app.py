@@ -224,9 +224,9 @@ def _iter_filtered_events(
 ) -> Iterator[AgentEvent]:
     pipeline = _get_filter_pipeline(app)
     if request.chat_model == "thin":
-        allowed_event_types = {"assistant_message"}
+        allowed_event_types = {"assistant_delta"}
     else:
-        allowed_event_types = {"assistant_message", "tool_call", "thinking"}
+        allowed_event_types = {"assistant_delta", "tool_call", "thinking"}
     for event in events:
         filtered_event = pipeline.apply_event(
             event,
