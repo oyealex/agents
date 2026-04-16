@@ -52,91 +52,50 @@ pip install -e .
 pip install -e ".[api]"
 ```
 
-## 环境变量
+## 运行时配置（agents.yaml / settings 节）
 
-配置会从当前环境变量和项目根目录 `.env` 文件读取。统一使用 `AGENT_` 前缀，不再提供额外 fallback 变量。
+运行时配置统一从 `agents.yaml` 顶层的 `settings` 节读取（和 `llms/tools/agents` 在同一个文件）。不再直接从 `.env` 或 `AGENT_*` 环境变量加载配置。
 
-最小配置示例：
+如果你希望在 YAML 中引用环境变量，可以使用 `${ENV_NAME}` 语法（仅支持这种形式，不支持 `:-` 默认值 fallback）。
 
-```bash
-export AGENT_OPENAI_API_KEY="..."
-export AGENT_OPENAI_BASE_URL="https://your-openai-compatible-endpoint/v1"
-export AGENT_MODEL="openai:gpt-4.1"
+完整配置示例见仓库根目录 `agents.yaml` 的 `settings` 节。
+
+```yaml
+settings:
+  app_name: agents
+  debug: false
+  storage_backend: sqlite
+  postgres_dsn: ${AGENT_POSTGRES_DSN}
+  db_path: ./data/agent.sqlite3
+  sessions_dir: ./data/sessions
+  default_user_id: default
+  api_host: 127.0.0.1
+  api_port: 8000
+  api_reload: false
+  cors_origins: ""
+  cors_allow_credentials: false
+  cors_allow_methods: "*"
+  cors_allow_headers: "*"
 ```
 
-完整配置项：
-
-| 环境变量 | 默认值 | 说明 |
-| --- | --- | --- |
-| `AGENT_APP_NAME` | `agents` | 应用名称，主要用于日志。 |
-| `AGENT_DEBUG` | `false` | 开启 debug 日志；CLI/API 的 `--debug` / `--no-debug` 可覆盖。 |
-| `AGENT_MODEL` | `openai:gpt-4.1` | LLM 模型。`openai:<model>` 会在请求 provider 时去掉 `openai:` 前缀。 |
-| `AGENT_OPENAI_API_KEY` | 空 | OpenAI-compatible API key。 |
-| `AGENT_OPENAI_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible base URL。 |
-| `AGENT_STORAGE_BACKEND` | `sqlite` | 存储后端。支持 `sqlite`、`postgres`、`postgresql`、`pg`。 |
-| `AGENT_DB_PATH` | `./data/agent.sqlite3` | SQLite 数据库路径。仅 SQLite 后端使用。 |
-| `AGENT_POSTGRES_DSN` | 空 | PostgreSQL DSN。 |
-| `AGENT_SESSIONS_DIR` | `./data/sessions` | 会话文件根目录；每个 `<user_id>/<thread_id>` 会拥有独立 `memory/`、`skills/` 和运行期文件目录。CLI 的 `--sessions-dir` 可覆盖。 |
-| `AGENT_DEFAULT_USER_ID` | `default` | 未显式指定用户时使用的默认用户隔离标识。 |
-| `AGENT_API_HOST` | `127.0.0.1` | Python 方式启动 API 时监听的 host；`--host` 可覆盖。 |
-| `AGENT_API_PORT` | `8000` | Python 方式启动 API 时监听的 port；`--port` 可覆盖。 |
-| `AGENT_API_RELOAD` | `false` | Python 方式启动 API 时是否启用 reload；`--reload` / `--no-reload` 可覆盖。 |
-| `AGENT_CORS_ORIGINS` | 空 | API CORS 允许的 origin，逗号分隔。为空时不启用 CORS；本地开发可设为 `*`。 |
-| `AGENT_CORS_ALLOW_CREDENTIALS` | `false` | CORS 是否允许 credentials。设为 `true` 时不要把 origins 配成 `*`，应明确列出前端域名。 |
-| `AGENT_CORS_ALLOW_METHODS` | `*` | CORS 允许的方法，逗号分隔。 |
-| `AGENT_CORS_ALLOW_HEADERS` | `*` | CORS 允许的请求头，逗号分隔。 |
-| `AGENT_CUSTOM_ENV_PREFIXES` | `AGENT_CUSTOM_,AGENT_AGENT_,AGENT_TOOL_` | 自定义环境变量前缀（逗号分隔）。匹配到的环境变量会被 `Settings.effective_custom_env` 收集，供后续自定义 Agent/Tool 读取。 |
-| `NO_COLOR` | 空 | 设置后关闭 CLI 彩色输出。 |
-
-SQLite 配置示例：
+常用启动方式：
 
 ```bash
-export AGENT_STORAGE_BACKEND="sqlite"
-export AGENT_DB_PATH="./data/agent.sqlite3"
+agents --agent-config ./agents.yaml
+agents-api --agent-config ./agents.yaml
 ```
 
-PostgreSQL 需要先安装可选依赖：
-
-```bash
-pip install -e ".[postgres]"
-```
-
-然后配置：
-
-```bash
-export AGENT_STORAGE_BACKEND="postgres"
-export AGENT_POSTGRES_DSN="postgresql://user:password@localhost:5432/agents"
-```
-
-API 服务配置示例：
-
-```bash
-export AGENT_API_HOST="0.0.0.0"
-export AGENT_API_PORT="8000"
-export AGENT_API_RELOAD="false"
-export AGENT_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:5173"
-```
-
-自定义 Agent/Tool 配置环境变量示例：
-
-```bash
-export AGENT_AGENT_PROFILE="researcher"
-export AGENT_TOOL_SEARCH_TIMEOUT="15"
-export AGENT_CUSTOM_FOO="bar"
-```
-
-在代码中可通过 `Settings` 读取：
+在代码中可通过 `Settings.load()` 读取：
 
 ```python
 from agents.config import Settings
 
-settings = Settings()
-all_custom = settings.effective_custom_env
-agent_custom = settings.effective_custom_agent_env
-tool_custom = settings.effective_custom_tool_env
+settings = Settings.load()
+print(settings.effective_sessions_dir)
+print(settings.effective_storage_backend)
 ```
 
-默认数据目录是当前目录下的 `data/`。SQLite 对话历史是全局共享数据库，默认是 `./data/agent.sqlite3`；PostgreSQL 使用 `AGENT_POSTGRES_DSN`。每个对话会按 `user_id` 和 `thread_id` 在 `./data/sessions/` 下创建独立文件目录，里面包含该用户会话自己的 `skills/` 和 `memory/`。`user_id` 是隔离标识，不是认证或授权机制；未指定时使用 `default`。
+默认数据目录是当前目录下的 `data/`。SQLite 对话历史是全局共享数据库，默认是 `./data/agent.sqlite3`；PostgreSQL 使用 `agents.yaml` 中 `settings.postgres_dsn`。每个对话会按 `user_id` 和 `thread_id` 在 `./data/sessions/` 下创建独立文件目录，里面包含该用户会话自己的 `skills/` 和 `memory/`。`user_id` 是隔离标识，不是认证或授权机制；未指定时使用 `default`。
 
 ```text
 data/
@@ -242,14 +201,15 @@ CLI 会区分显示用户输入、Agent 流式输出、思考/步骤、工具调
 
 启动时默认读取当前目录下的 `agents.yaml`。如果这个文件不存在，系统使用内置 `default` 和 `db_explorer`。也可以通过 `--agent-config` 指定其他配置文件；显式指定的文件不存在时会启动失败。
 
-YAML 顶层固定为三段：
+YAML 顶层固定为四段（运行时配置 + Agent 资源定义）：
 
 ```yaml
+settings: {}
 llms:
   - name: main
-    model: ${AGENT_MODEL:-openai:gpt-4.1}
+    model: ${AGENT_MODEL}
     api_key: ${AGENT_OPENAI_API_KEY}
-    base_url: ${AGENT_OPENAI_BASE_URL:-https://api.openai.com/v1}
+    base_url: ${AGENT_OPENAI_BASE_URL}
 
 tools:
   - name: calculator
@@ -288,7 +248,7 @@ agents:
 配置规则：
 
 - `llms` 定义 LLM 资源，`model` 保持 DeepAgents 的 `provider:model` 格式；当前 OpenAI-compatible 路径仍强制使用 Chat Completions。
-- `model`、`api_key`、`base_url` 支持 `${VAR}` 和 `${VAR:-default}` 环境变量引用。
+- `model`、`api_key`、`base_url` 支持 `${VAR}` 环境变量引用（不支持 fallback 默认值）。
 - `tools` 定义 Tool Provider，`provider` 是完整类路径，`config` 会作为关键字参数传给 provider 构造函数；`config` 内字符串也支持环境变量引用。
 - `agents` 定义命名 Agent，`llm`、`tools`、`subagents` 都通过名称引用前面已配置的资源。
 - `system_prompt` 可直接写在 YAML 中；`system_prompt_file` 可引用外部 UTF-8 文件。二者不能同时配置。相对路径按配置文件所在目录解析，绝对路径按原路径解析。
@@ -364,7 +324,7 @@ tools:
   - name: research
     provider: agents.tools.research.ResearchToolProvider
     config:
-      timeout: ${AGENT_TOOL_SEARCH_TIMEOUT:-15}
+      timeout: ${AGENT_TOOL_SEARCH_TIMEOUT}
 ```
 
 > 提示：如果你启动时出现 `Unknown agent 'xxx'`，说明该名称没有出现在内置 registry 或当前加载的 `agents.yaml` 中。
@@ -375,10 +335,7 @@ tools:
 2. `Run kind` 选择 **Module name**，填入 `agents.cli`。
 3. `Python interpreter` 选择项目 `.venv`。
 4. `Working directory` 设为项目根目录。
-5. 在 `Environment variables` 中至少配置：
-   - `AGENT_OPENAI_API_KEY=...`
-   - `AGENT_OPENAI_BASE_URL=https://<your-endpoint>/v1`
-   - `AGENT_MODEL=openai:gpt-4.1`
+5. 准备 `agents.yaml`，并在顶层 `settings` 节按需写入 `${...}` 环境变量引用。
 6. `Parameters` 可选：
    - 连续对话：留空（等价 `agents`）
    - 新会话：`--new`
@@ -459,7 +416,7 @@ agents-api --agent default --agent-config ./agents.yaml --host 127.0.0.1 --port 
 3. `Python interpreter` 选择项目 `.venv`（需先 `pip install -e ".[api]"`）。
 4. `Working directory` 设为项目根目录。
 5. `Parameters` 可选：`--host 127.0.0.1 --port 8000 --no-reload --agent default --agent-config ./agents.yaml`。
-6. `Environment variables` 可按需配置：`AGENT_API_HOST`、`AGENT_API_PORT`、`AGENT_CORS_ORIGINS` 等。
+6. 通过 `--agent-config` 指向 `agents.yaml`，并在 `settings` 节调整 `api_host`、`api_port`、`cors_origins` 等字段。
 
 接口：
 
@@ -494,8 +451,8 @@ SSE 流不会返回 `internal_state` 事件；这类事件属于 DeepAgents/Lang
 
 浏览器跨域访问需要配置 CORS，例如：
 
-```bash
-export AGENT_CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:5173"
+```yaml
+cors_origins: http://localhost:3000,http://127.0.0.1:5173
 ```
 
-不配置 `AGENT_CORS_ORIGINS` 时，API 不启用 CORS。
+不配置 `cors_origins`（空字符串）时，API 不启用 CORS。

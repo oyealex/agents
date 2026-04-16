@@ -7,7 +7,7 @@ from threading import RLock
 
 from agents.config import Settings
 from agents.core.agent import AgentRuntime
-from agents.core.definitions import AgentConfigError, AgentRegistry, load_agent_registry, mask_secrets
+from agents.core.definitions import AgentConfigError, AgentRegistry, load_agent_registry
 from agents.core.service import AgentService
 from agents.core.tools import AgentToolProvider
 from agents.storage.db import connect_database, initialize_database
@@ -25,24 +25,14 @@ def build_service(
     include_builtin_tools: bool = True,
     agent_name: str = "default",
 ) -> AgentService:
-    settings = Settings(sessions_dir=sessions_dir) if sessions_dir else Settings()
+    overrides = {"sessions_dir": sessions_dir} if sessions_dir else {}
+    settings = Settings.load(agent_config_path, **overrides)
     settings.ensure_directories()
     logger.info("Starting %s", settings.app_name)
-    logger.info("Model setting: %s", settings.model)
-    logger.info("Provider model name: %s", settings.effective_model_name)
-    logger.info("OpenAI API mode: chat_completions")
-    logger.info("OpenAI base URL: %s", mask_secrets(settings.effective_openai_base_url))
-    logger.info("OpenAI API key configured: %s", "yes" if settings.has_openai_api_key else "no")
     logger.info("Storage backend: %s", settings.effective_storage_backend)
     if settings.effective_storage_backend == "sqlite":
         logger.info("SQLite DB path: %s", settings.effective_db_path)
     logger.info("Sessions dir: %s", settings.effective_sessions_dir)
-    logger.info(
-        "Custom env loaded: total=%s agent=%s tool=%s",
-        len(settings.effective_custom_env),
-        len(settings.effective_custom_agent_env),
-        len(settings.effective_custom_tool_env),
-    )
 
     database = connect_database(settings)
     initialize_database(database)

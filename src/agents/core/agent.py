@@ -106,10 +106,10 @@ def _openai_model_name(model: str) -> str:
     return model
 
 
-def build_chat_model(settings: Settings, llm: LlmResource | None = None) -> ChatOpenAI:
-    model = llm.model if llm and llm.model else settings.model
-    base_url = llm.base_url if llm and llm.base_url else settings.effective_openai_base_url
-    api_key = llm.api_key if llm and llm.api_key else settings.openai_api_key
+def build_chat_model(_settings: Settings, llm: LlmResource | None = None) -> ChatOpenAI:
+    model = llm.model if llm and llm.model else "openai:gpt-4.1"
+    base_url = llm.base_url if llm and llm.base_url else "https://api.openai.com/v1"
+    api_key = llm.api_key if llm and llm.api_key else None
     extra_kwargs = dict(llm.kwargs) if llm else {}
     kwargs = {
         "model": _openai_model_name(model),
