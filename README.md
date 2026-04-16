@@ -434,11 +434,13 @@ agents-api --agent default --agent-config ./agents.yaml --host 127.0.0.1 --port 
 {
   "user_id": "default",
   "thread_id": "default",
-  "message": "帮我整理今天的任务"
+  "message": "帮我整理今天的任务",
+  "tenant_id": "acme",
+  "scene": "daily_planning"
 }
 ```
 
-同步聊天响应会返回实际使用的 `user_id` 和 `thread_id`。历史查询支持 `limit` 和 `offset`，例如：
+同步聊天响应会返回实际使用的 `user_id` 和 `thread_id`，过滤层也可以把自定义字段直接追加为响应顶层字段（SSE 每条事件同理）。历史查询支持 `limit` 和 `offset`，例如：
 
 ```text
 GET /users/default/chats?limit=20&offset=0
@@ -448,6 +450,46 @@ GET /users/default/chats/work/messages?limit=50&offset=0
 不存在的聊天历史返回空消息列表。`limit` 会被限制在系统允许的最大分页大小内。
 
 SSE 流不会返回 `internal_state` 事件；这类事件属于 DeepAgents/LangGraph 内部状态同步，不适合作为前端可见过程展示。
+
+### API 过滤层扩展（请求 / 响应 / SSE）
+
+API 入口新增可组合过滤层 `ApiFilterPipeline`，可在不改动 `AgentService` 的情况下做定制：
+
+- 解析和改写入参（包括与 `thread_id/message/user_id` 平级的自定义字段）
+- 按条件过滤或改写 SSE 事件对象
+- 为同步响应和 SSE 事件追加顶层自定义字段
+
+核心位置：
+
+- `agents.interfaces.api.filters.ApiFilter`
+- `agents.interfaces.api.filters.ApiFilterPipeline`
+- `agents.interfaces.api.app.create_app(..., api_filters=...)`
+
+示例：
+
+```python
+from agents.interfaces.api.app import create_app
+from agents.interfaces.api.filters import BaseApiFilter, ApiFilterContext
+
+
+class TenantFilter(BaseApiFilter):
+    def transform_chat_request(self, request, context: ApiFilterContext):
+        tenant_id = request.extension_fields.get("tenant_id")
+        if not tenant_id:
+            return request
+        return request.model_copy(
+            update={"thread_id": f"{tenant_id}:{request.thread_id}"}
+        )
+
+    def chat_response_fields(self, result, context: ApiFilterContext):
+        return {"tenant_thread_id": result.thread_id}
+
+    def event_fields(self, event, context: ApiFilterContext):
+        return {"agent": context.agent_name, "event_type": event.event_type}
+
+
+app = create_app(agent_name="default", api_filters=(TenantFilter(),))
+```
 
 浏览器跨域访问需要配置 CORS，例如：
 
